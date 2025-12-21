@@ -1,2 +1,59 @@
 # Py-Typing-1.0
-Simple typing practice app written in Python. Uses PyQT and a simple UI.
+
+Train your typing speed and accuracy in minutes — lightweight, local, and designed for real improvement.
+
+## Why try Py-Typing-1.0?
+
+- See measurable improvements quickly with real-time feedback and clear metrics.
+- No accounts or cloud services — everything runs locally on your machine.
+- Minimal setup: small, responsive UI built with PyQt; ideal for quick practice sessions.
+- Suitable for beginners learning touch typing and experienced users sharpening speed.
+
+## Quick highlights
+
+- Real-time accuracy and speed feedback
+- Multiple exercise texts and customizable sessions
+- Clean, distraction-free PyQt interface
+- Tracks session results so you can monitor progress
+
+## Quick start
+
+1. Clone the repo:
+   ```bash
+   git clone <repository-url>
+   cd Py-Typing-1.0
+   ```
+2. Install dependencies:
+   ```bash
+   pip install PyQt5
+   ```
+3. Run:
+   ```bash
+   python main.py
+   ```
+
+## How to get the most out of it
+
+- Start with short 1–3 minute sessions and focus on accuracy, then increase speed.
+- Use a consistent practice schedule (e.g., 10–15 minutes daily).
+- Try different texts to work on varied vocabulary and punctuation.
+
+## Project structure
+
+```
+Py-Typing-1.0/
+├── README.md
+├── main.py
+├── ui/
+│   └── (UI components)
+└── resources/
+    └── (Text files and assets)
+```
+
+## Contributing
+
+Bug reports, small fixes, and usability improvements are welcome. Open an issue or submit a PR.
+
+## License
+
+GPL 3.0
