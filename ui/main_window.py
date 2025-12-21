@@ -45,7 +45,7 @@ from core.constants import (
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
 )
-from ui.widgets import KeyboardWidget, FingerLegendWidget, VirtualHandWidget, CelebrationOverlay
+from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
 from ui.dialogs import StatisticsDialog, SettingsDialog
 
 class TypingPracticeApp(QMainWindow):
@@ -354,10 +354,6 @@ class TypingPracticeApp(QMainWindow):
         toggle_layout.addStretch()
         kb_layout.addLayout(toggle_layout)
 
-        # Virtual hand widget
-        self.hand_widget = VirtualHandWidget()
-        kb_layout.addWidget(self.hand_widget)
-
         # Keyboard widget
         self.keyboard_widget = KeyboardWidget()
         kb_layout.addWidget(self.keyboard_widget)
@@ -390,7 +386,6 @@ class TypingPracticeApp(QMainWindow):
         visible = self.keyboard_toggle.isChecked()
         self.keyboard_widget.setVisible(visible)
         self.finger_legend.setVisible(visible)
-        self.hand_widget.setVisible(visible)
         self.keyboard_toggle.setText("⌨️ Hide Keyboard" if visible else "⌨️ Show Keyboard")
         self.progress_store.set_setting("show_keyboard", visible)
 
@@ -405,7 +400,6 @@ class TypingPracticeApp(QMainWindow):
         self.keyboard_toggle.setChecked(show_keyboard)
         self.keyboard_widget.setVisible(show_keyboard)
         self.finger_legend.setVisible(show_keyboard)
-        self.hand_widget.setVisible(show_keyboard)
         self.keyboard_toggle.setText("⌨️ Hide Keyboard" if show_keyboard else "⌨️ Show Keyboard")
 
         # Strict mode indicator
@@ -421,7 +415,6 @@ class TypingPracticeApp(QMainWindow):
         """Apply light or dark theme to the application."""
         self.keyboard_widget.set_dark_mode(dark_mode)
         self.finger_legend.set_dark_mode(dark_mode)
-        self.hand_widget.set_dark_mode(dark_mode)
 
         if dark_mode:
             self.setStyleSheet("""
@@ -660,7 +653,6 @@ class TypingPracticeApp(QMainWindow):
         """Update the keyboard to highlight the next key to press."""
         if not self.current_target_text:
             self.keyboard_widget.clear_highlights()
-            self.hand_widget.clear_highlights()
             return
 
         typed_len = len(self.session.typed_text)
@@ -668,7 +660,6 @@ class TypingPracticeApp(QMainWindow):
 
         if typed_len >= target_len:
             self.keyboard_widget.clear_highlights()
-            self.hand_widget.clear_highlights()
             return
 
         next_char = self.current_target_text[typed_len]
@@ -680,11 +671,9 @@ class TypingPracticeApp(QMainWindow):
             if last_typed != expected:
                 # Show error - highlight what should have been pressed
                 self.keyboard_widget.set_next_key(expected, error=True)
-                self.hand_widget.set_next_key(expected, error=True)
                 return
 
         self.keyboard_widget.set_next_key(next_char, error=False)
-        self.hand_widget.set_next_key(next_char, error=False)
 
     def update_display(self) -> None:
         """Update highlighted text and real-time statistics."""
@@ -855,7 +844,6 @@ class TypingPracticeApp(QMainWindow):
 
         self.typing_input.setReadOnly(True)
         self.keyboard_widget.clear_highlights()
-        self.hand_widget.clear_highlights()
 
         # Build completion message with backspace info
         backspace_count = self.session.backspace_count

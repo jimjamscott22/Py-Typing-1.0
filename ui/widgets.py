@@ -49,8 +49,8 @@ class KeyboardWidget(QWidget):
         self.next_key: str = ""
         self.error_key: str = ""  # Key that should have been pressed on error
         self.dark_mode: bool = False
-        self.setMinimumHeight(180)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(260)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_next_key(self, key: str, error: bool = False) -> None:
         """Set the next key to highlight. If error=True, highlight as error."""

@@ -1,12 +1,12 @@
 {
   "current_lesson_index": 4,
-  "current_text_index": 0,
+  "current_text_index": 1,
   "best_wpm": {
     "0": 19,
     "1": 31,
     "2": 44,
     "3": 38,
-    "4": 43
+    "4": 46
   },
   "session_history": [
     {
@@ -104,6 +104,30 @@
       "backspaces": 0,
       "duration_seconds": 7.9,
       "text_length": 27
+    },
+    {
+      "timestamp": "2025-12-21T01:11:42.402993",
+      "lesson_index": 4,
+      "text_index": 0,
+      "lesson_name": "Bottom Row - Basic",
+      "wpm": 46,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 6.9,
+      "text_length": 27
+    },
+    {
+      "timestamp": "2025-12-21T01:16:29.987763",
+      "lesson_index": 4,
+      "text_index": 1,
+      "lesson_name": "Bottom Row - Basic",
+      "wpm": 23,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 8.5,
+      "text_length": 17
     }
   ],
   "settings": {
