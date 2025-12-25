@@ -34,6 +34,7 @@ from core.models import TypingSession, SessionRecord
 from core.persistence import ProgressStore
 from core.lessons import build_lessons
 from core.wordgen import generate_text
+from core.audio import CelebrationSoundManager
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -58,6 +59,9 @@ class TypingPracticeApp(QMainWindow):
         self.lesson_offset = 1
         self.mode = "lesson"
         self._previous_typed_length = 0  # Track for backspace detection
+
+        # Initialize the celebration sound manager with this window as parent
+        CelebrationSoundManager.initialize(self)
 
         # Assuming typing_progress.json is in the root folder relative to execution or same folder
         # We'll look for it relative to the main script execution
@@ -926,6 +930,8 @@ class TypingPracticeApp(QMainWindow):
 
         if self.progress_store.get_setting("show_celebration", DEFAULT_SHOW_CELEBRATION):
             self.celebration_overlay.start()
+            # Play the celebratory sound
+            CelebrationSoundManager.play()
 
         QTimer.singleShot(2000, self._unlock_text_input)
 

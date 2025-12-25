@@ -5,11 +5,22 @@ import struct
 import wave
 import math
 import tempfile
+import platform
 from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import QUrl, QObject
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+
+# Try to import platform-specific audio module
+if platform.system() == "Windows":
+    try:
+        import winsound
+        HAS_WINSOUND = True
+    except ImportError:
+        HAS_WINSOUND = False
+else:
+    HAS_WINSOUND = False
 
 
 class CelebrationSound(QObject):
@@ -46,6 +57,18 @@ class CelebrationSound(QObject):
 
     def play(self) -> None:
         """Play the celebration sound."""
+        # Try using winsound first on Windows
+        if HAS_WINSOUND:
+            try:
+                if not hasattr(self, '_temp_file') or self._temp_file is None:
+                    self._temp_file = self._generate_celebration_melody()
+                # Use SND_ASYNC to play asynchronously without blocking
+                winsound.PlaySound(str(self._temp_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                return
+            except Exception:
+                pass
+        
+        # Fall back to QMediaPlayer
         if not self._ensure_initialized():
             return
         
@@ -143,6 +166,14 @@ class CelebrationSoundManager:
     """Singleton manager for the celebration sound."""
     
     _instance: Optional[CelebrationSound] = None
+    _parent: Optional[QObject] = None
+    
+    @classmethod
+    def initialize(cls, parent: QObject) -> None:
+        """Initialize the singleton with a parent QObject."""
+        if cls._instance is None:
+            cls._parent = parent
+            cls._instance = CelebrationSound(parent)
     
     @classmethod
     def get_instance(cls, parent=None) -> CelebrationSound:
@@ -154,5 +185,7 @@ class CelebrationSoundManager:
     @classmethod
     def play(cls) -> None:
         """Play the celebration sound using the singleton instance."""
+        if cls._instance is None and cls._parent is not None:
+            cls._instance = CelebrationSound(cls._parent)
         if cls._instance:
             cls._instance.play()
