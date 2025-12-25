@@ -1,0 +1,58 @@
+{
+  "current_lesson_index": 0,
+  "current_text_index": 1,
+  "best_wpm": {
+    "0": 46
+  },
+  "session_history": [
+    {
+      "timestamp": "2025-12-25T03:04:54.919981",
+      "lesson_index": 0,
+      "text_index": 0,
+      "lesson_name": "Home Row - Basic",
+      "wpm": 46,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 8.0,
+      "text_length": 31
+    },
+    {
+      "timestamp": "2025-12-25T03:05:31.716818",
+      "lesson_index": 0,
+      "text_index": 1,
+      "lesson_name": "Home Row - Basic",
+      "wpm": 32,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 10.6,
+      "text_length": 29
+    },
+    {
+      "timestamp": "2025-12-25T03:07:24.745937",
+      "lesson_index": 0,
+      "text_index": 1,
+      "lesson_name": "Home Row - Basic",
+      "wpm": 39,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 8.9,
+      "text_length": 29
+    }
+  ],
+  "random_texts": {
+    "7": "he went their saw feel happy old why an had gets help other as room small question level run call lose after available make from"
+  },
+  "settings": {
+    "backspace_penalty": 3,
+    "backspace_accuracy_weight": 0.5,
+    "strict_mode": false,
+    "dark_mode": false,
+    "show_keyboard": true,
+    "show_celebration": true,
+    "font_size": 16,
+    "random_word_count": 25
+  }
+}
