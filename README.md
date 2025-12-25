@@ -15,8 +15,15 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - Multiple exercise texts and customizable sessions
 - Clean, distraction-free PyQt interface
 - Tracks session results so you can monitor progress
+- Virtual keyboard with finger position guidance
+- Celebratory sound on perfect rounds (configurable)
+- Dark mode support
+- Strict mode to prevent backspacing
+- Free practice mode for custom text
 
 ## Quick start
+
+### Option 1: Run from source (Recommended for development)
 
 1. Clone the repo:
    ```bash
@@ -25,12 +32,26 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
    ```
 2. Install dependencies:
    ```bash
-   pip install PyQt5
+   pip install PyQt6
    ```
 3. Run:
    ```bash
    python main.py
    ```
+
+### Option 2: Build a standalone executable (Windows)
+
+1. Install PyInstaller:
+   ```bash
+   pip install PyInstaller
+   ```
+2. Run the build script:
+   ```bash
+   build_exe.bat
+   ```
+3. The executable will be created at `dist/Typing Practice.exe`
+
+You can now distribute or run the standalone executable without needing Python installed.
 
 ## How to get the most out of it
 
