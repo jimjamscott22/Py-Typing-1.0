@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession, SessionRecord
 from core.persistence import ProgressStore
 from core.lessons import build_lessons
+from core.wordgen import generate_text
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -40,8 +41,8 @@ from core.constants import (
     DEFAULT_DARK_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
-    DEFAULT_CELEBRATION_SOUND,
     DEFAULT_FONT_SIZE,
+    DEFAULT_RANDOM_WORD_COUNT,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
 )
@@ -374,6 +375,15 @@ class TypingPracticeApp(QMainWindow):
         self.next_button.clicked.connect(self.next_text)
         button_layout.addWidget(self.next_button)
 
+        # Regenerate button for Random Words (initially hidden)
+        self.regenerate_button = QPushButton("🎲 Generate New Words")
+        self.regenerate_button.setStyleSheet(
+            "background-color: #FF9800; color: white; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 5px;"
+        )
+        self.regenerate_button.clicked.connect(self.regenerate_random_text)
+        self.regenerate_button.setVisible(False)
+        button_layout.addWidget(self.regenerate_button)
+
         self.reset_button = QPushButton("↺ Reset")
         self.reset_button.setStyleSheet("padding: 12px; font-size: 14px; border-radius: 5px;")
         self.reset_button.clicked.connect(self.reset_exercise)
@@ -590,6 +600,10 @@ class TypingPracticeApp(QMainWindow):
         self.current_lesson_index = index
         lesson = self.lessons[index]
 
+        # Show regenerate button only for Random Words lesson
+        is_random = lesson.title == "Random Words"
+        self.regenerate_button.setVisible(is_random)
+
         if reset_text_index or self.current_text_index >= len(lesson.texts):
             self.current_text_index = 0
 
@@ -608,10 +622,36 @@ class TypingPracticeApp(QMainWindow):
             return
 
         self.current_text_index = min(self.current_text_index, len(lesson.texts) - 1)
-        self.current_target_text = lesson.texts[self.current_text_index]
+        # Support generated random word drills when a lesson uses the special marker
+        candidate = lesson.texts[self.current_text_index]
+        if candidate == "__RANDOM__" or lesson.title == "Random Words":
+            # Try to load persisted text first
+            persisted = self.progress_store.get_random_text(self.current_lesson_index)
+            if persisted:
+                self.current_target_text = persisted
+            else:
+                # Generate new text with configured word count
+                word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
+                self.current_target_text = generate_text(word_count)
+                # Persist the generated text
+                self.progress_store.set_random_text(self.current_lesson_index, self.current_target_text)
+        else:
+            self.current_target_text = candidate
         self.target_text.setText(self.current_target_text)
         self.reset_exercise()
         self._save_progress()
+
+    def regenerate_random_text(self) -> None:
+        """Generate new random text for the Random Words lesson."""
+        lesson = self.lessons[self.current_lesson_index]
+        if lesson.title == "Random Words":
+            # Clear persisted text and generate new
+            self.progress_store.clear_random_text(self.current_lesson_index)
+            word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
+            self.current_target_text = generate_text(word_count)
+            self.progress_store.set_random_text(self.current_lesson_index, self.current_target_text)
+            self.target_text.setText(self.current_target_text)
+            self.reset_exercise()
 
     def reset_exercise(self) -> None:
         """Clear typing data and reset statistics."""
@@ -663,7 +703,7 @@ class TypingPracticeApp(QMainWindow):
             return
 
         next_char = self.current_target_text[typed_len]
-
+        
         # Check if last typed character was an error
         if typed_len > 0:
             last_typed = self.session.typed_text[-1]
@@ -885,20 +925,7 @@ class TypingPracticeApp(QMainWindow):
             self._record_best_wpm(wpm)
 
         if self.progress_store.get_setting("show_celebration", DEFAULT_SHOW_CELEBRATION):
-            # Determine if this was a perfect round (100% accuracy, no errors, no backspaces)
-            is_perfect = (
-                self.session.errors == 0 and 
-                self.session.backspace_count == 0 and
-                len(self.session.typed_text) == len(self.current_target_text)
-            )
-            
-            # Play celebration sound only on perfect rounds if enabled
-            play_sound = (
-                is_perfect and 
-                self.progress_store.get_setting("celebration_sound", DEFAULT_CELEBRATION_SOUND)
-            )
-            
-            self.celebration_overlay.start(play_sound=play_sound)
+            self.celebration_overlay.start()
 
         QTimer.singleShot(2000, self._unlock_text_input)
 

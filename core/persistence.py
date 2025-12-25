@@ -11,6 +11,7 @@ from core.constants import (
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
     DEFAULT_FONT_SIZE,
+    DEFAULT_RANDOM_WORD_COUNT,
 )
 
 class ProgressStore:
@@ -25,6 +26,7 @@ class ProgressStore:
             "current_text_index": 0,
             "best_wpm": {},
             "session_history": [],
+            "random_texts": {},  # Store generated random texts by lesson index
             "settings": {
                 "backspace_penalty": DEFAULT_BACKSPACE_PENALTY,
                 "backspace_accuracy_weight": DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -33,6 +35,7 @@ class ProgressStore:
                 "show_keyboard": DEFAULT_SHOW_KEYBOARD,
                 "show_celebration": DEFAULT_SHOW_CELEBRATION,
                 "font_size": DEFAULT_FONT_SIZE,
+                "random_word_count": DEFAULT_RANDOM_WORD_COUNT,
             },
         }
         self.load()
@@ -102,3 +105,25 @@ class ProgressStore:
             self.data["settings"] = {}
         self.data["settings"][key] = value
         self.save()
+
+    def get_random_text(self, lesson_index: int) -> Optional[str]:
+        """Get the stored random text for a lesson, if any."""
+        random_texts = self.data.get("random_texts", {})
+        if isinstance(random_texts, dict):
+            return random_texts.get(str(lesson_index))
+        return None
+
+    def set_random_text(self, lesson_index: int, text: str) -> None:
+        """Store a generated random text for a lesson."""
+        if "random_texts" not in self.data or not isinstance(self.data["random_texts"], dict):
+            self.data["random_texts"] = {}
+        self.data["random_texts"][str(lesson_index)] = text
+        self.save()
+
+    def clear_random_text(self, lesson_index: int) -> None:
+        """Clear the stored random text for a lesson to force regeneration."""
+        random_texts = self.data.get("random_texts", {})
+        if isinstance(random_texts, dict) and str(lesson_index) in random_texts:
+            del random_texts[str(lesson_index)]
+            self.data["random_texts"] = random_texts
+            self.save()

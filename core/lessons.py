@@ -75,6 +75,11 @@ def build_lessons() -> List[Lesson]:
             ],
         ),
         Lesson(
+            title="Random Words",
+            description="Practice with a generated stream of common words (randomized each time)",
+            texts=["__RANDOM__"],
+        ),
+        Lesson(
             title="Sentences - Easy",
             description="Type complete sentences for fluency",
             texts=[

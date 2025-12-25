@@ -1,2 +1,1 @@
-pyqt6
-pyqt6-multimedia
+pyqt6 

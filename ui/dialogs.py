@@ -32,8 +32,8 @@ from core.constants import (
     DEFAULT_DARK_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
-    DEFAULT_CELEBRATION_SOUND,
     DEFAULT_FONT_SIZE,
+    DEFAULT_RANDOM_WORD_COUNT,
 )
 
 class StatisticsDialog(QDialog):
@@ -449,16 +449,6 @@ class SettingsDialog(QDialog):
         )
         display_layout.addRow(self.celebration_check)
 
-        # Celebration sound (for perfect rounds)
-        self.celebration_sound_check = QCheckBox("Play Victory Sound on Perfect Rounds")
-        self.celebration_sound_check.setChecked(
-            self.progress_store.get_setting("celebration_sound", DEFAULT_CELEBRATION_SOUND)
-        )
-        self.celebration_sound_check.setToolTip(
-            "Plays a short celebratory melody when you complete a text with 100% accuracy (no errors or backspaces)"
-        )
-        display_layout.addRow(self.celebration_sound_check)
-
         # Show keyboard
         self.show_keyboard_check = QCheckBox("Show Virtual Keyboard")
         self.show_keyboard_check.setChecked(
@@ -476,6 +466,22 @@ class SettingsDialog(QDialog):
         display_layout.addRow("Font Size:", self.font_size_spin)
 
         layout.addWidget(display_group)
+
+        # Random Words Settings
+        random_group = QGroupBox("🎲 Random Words Settings")
+        random_layout = QFormLayout(random_group)
+
+        # Word count spinner
+        self.word_count_spin = QSpinBox()
+        self.word_count_spin.setRange(10, 100)
+        self.word_count_spin.setValue(
+            self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
+        )
+        self.word_count_spin.setSuffix(" words")
+        self.word_count_spin.setToolTip("Number of random words to generate for practice")
+        random_layout.addRow("Word Count:", self.word_count_spin)
+
+        layout.addWidget(random_group)
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -497,8 +503,8 @@ class SettingsDialog(QDialog):
         self.progress_store.set_setting("strict_mode", self.strict_mode_check.isChecked())
         self.progress_store.set_setting("dark_mode", self.dark_mode_check.isChecked())
         self.progress_store.set_setting("show_celebration", self.celebration_check.isChecked())
-        self.progress_store.set_setting("celebration_sound", self.celebration_sound_check.isChecked())
         self.progress_store.set_setting("show_keyboard", self.show_keyboard_check.isChecked())
         self.progress_store.set_setting("font_size", self.font_size_spin.value())
+        self.progress_store.set_setting("random_word_count", self.word_count_spin.value())
         self.settings_changed.emit()
         self.accept()
