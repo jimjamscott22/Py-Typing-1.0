@@ -96,3 +96,5 @@ After a successful build, you can safely delete:
 - [PyInstaller Documentation](https://pyinstaller.org/)
 - [PyQt6 with PyInstaller](https://doc.qt.io/qtforpython/)
 
+
+
