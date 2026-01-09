@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.constants import KEY_FINGER_MAP, FINGER_COLORS
+from core.themes import Theme, LIGHT_THEME
 
 class KeyboardWidget(QWidget):
     """Virtual keyboard display with next-key highlighting and finger color coding."""
@@ -47,7 +48,7 @@ class KeyboardWidget(QWidget):
         super().__init__(parent)
         self.next_key: str = ""
         self.error_key: str = ""  # Key that should have been pressed on error
-        self.dark_mode: bool = False
+        self.theme: Theme = LIGHT_THEME
         self.setMinimumHeight(180)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -67,9 +68,9 @@ class KeyboardWidget(QWidget):
         self.error_key = ""
         self.update()
 
-    def set_dark_mode(self, enabled: bool) -> None:
-        """Toggle dark mode styling."""
-        self.dark_mode = enabled
+    def set_theme(self, theme: Theme) -> None:
+        """Apply a theme to the keyboard."""
+        self.theme = theme
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -90,21 +91,13 @@ class KeyboardWidget(QWidget):
         start_x = 10
         y = 10
 
-        # Colors
-        if self.dark_mode:
-            bg_color = QColor("#2d2d2d")
-            key_bg = QColor("#404040")
-            key_border = QColor("#555555")
-            text_color = QColor("#ffffff")
-            highlight_color = QColor("#4CAF50")  # Green for next key
-            error_color = QColor("#f44336")  # Red for error
-        else:
-            bg_color = QColor("#e8e8e8")
-            key_bg = QColor("#ffffff")
-            key_border = QColor("#cccccc")
-            text_color = QColor("#333333")
-            highlight_color = QColor("#4CAF50")
-            error_color = QColor("#f44336")
+        # Colors from theme
+        bg_color = QColor(self.theme.keyboard_bg)
+        key_bg = QColor(self.theme.keyboard_key_bg)
+        key_border = QColor(self.theme.keyboard_key_border)
+        text_color = QColor(self.theme.keyboard_text)
+        highlight_color = QColor(self.theme.keyboard_highlight)
+        error_color = QColor(self.theme.keyboard_error)
 
         # Draw background
         painter.fillRect(self.rect(), bg_color)
@@ -134,7 +127,8 @@ class KeyboardWidget(QWidget):
                     if finger:
                         finger_color = FINGER_COLORS.get(finger, "#ffffff")
                         fill_color = QColor(finger_color)
-                        if self.dark_mode:
+                        # Adjust brightness for dark themes
+                        if self.theme.name != "Light":
                             fill_color = fill_color.darker(130)
                         current_text_color = text_color
                     else:
@@ -169,11 +163,11 @@ class FingerLegendWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.dark_mode = False
+        self.theme: Theme = LIGHT_THEME
         self.setFixedHeight(30)
 
-    def set_dark_mode(self, enabled: bool) -> None:
-        self.dark_mode = enabled
+    def set_theme(self, theme: Theme) -> None:
+        self.theme = theme
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -195,12 +189,12 @@ class FingerLegendWidget(QWidget):
         x = 5
         item_width = (self.width() - 10) / len(legend_items)
         
-        text_color = QColor("#ffffff") if self.dark_mode else QColor("#333333")
+        text_color = QColor(self.theme.keyboard_text)
         painter.setFont(QFont("Segoe UI", 8))
 
         for label, finger in legend_items:
             color = QColor(FINGER_COLORS[finger])
-            if self.dark_mode:
+            if self.theme.name != "Light":
                 color = color.darker(130)
             
             # Draw color swatch

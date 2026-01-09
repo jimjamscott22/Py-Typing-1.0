@@ -27,6 +27,7 @@ class ProgressStore:
             "best_wpm": {},
             "session_history": [],
             "random_texts": {},  # Store generated random texts by lesson index
+            "key_error_stats": {},  # Global statistics for key errors
             "settings": {
                 "backspace_penalty": DEFAULT_BACKSPACE_PENALTY,
                 "backspace_accuracy_weight": DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -127,3 +128,20 @@ class ProgressStore:
             del random_texts[str(lesson_index)]
             self.data["random_texts"] = random_texts
             self.save()
+    
+    def update_key_error_stats(self, key_errors: Dict[str, int]) -> None:
+        """Update global key error statistics with session data."""
+        if "key_error_stats" not in self.data or not isinstance(self.data["key_error_stats"], dict):
+            self.data["key_error_stats"] = {}
+        
+        stats = self.data["key_error_stats"]
+        for key, count in key_errors.items():
+            stats[key] = stats.get(key, 0) + count
+        
+        self.data["key_error_stats"] = stats
+        self.save()
+    
+    def get_key_error_stats(self) -> Dict[str, int]:
+        """Get global key error statistics."""
+        stats = self.data.get("key_error_stats", {})
+        return stats if isinstance(stats, dict) else {}

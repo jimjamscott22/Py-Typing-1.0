@@ -1,6 +1,6 @@
 import time
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict
 
 @dataclass(frozen=True)
 class Lesson:
@@ -17,6 +17,7 @@ class TypingSession:
     errors: int = 0
     is_active: bool = False
     backspace_count: int = 0  # Track backspace usage
+    key_errors: Dict[str, int] = field(default_factory=dict)  # Track errors per key
 
     def reset(self) -> None:
         self.typed_text = ""
@@ -24,10 +25,16 @@ class TypingSession:
         self.errors = 0
         self.is_active = False
         self.backspace_count = 0
+        self.key_errors = {}
 
     def begin(self) -> None:
         self.is_active = True
         self.start_time = time.time()
+    
+    def record_key_error(self, expected_key: str) -> None:
+        """Record an error for a specific key."""
+        if expected_key:
+            self.key_errors[expected_key] = self.key_errors.get(expected_key, 0) + 1
 
 
 @dataclass

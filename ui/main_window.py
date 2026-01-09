@@ -35,6 +35,7 @@ from core.persistence import ProgressStore
 from core.lessons import build_lessons
 from core.wordgen import generate_text
 from core.audio import CelebrationSoundManager
+from core.themes import get_theme, Theme
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -44,6 +45,7 @@ from core.constants import (
     DEFAULT_SHOW_CELEBRATION,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
+    DEFAULT_THEME,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
 )
@@ -59,6 +61,7 @@ class TypingPracticeApp(QMainWindow):
         self.lesson_offset = 1
         self.mode = "lesson"
         self._previous_typed_length = 0  # Track for backspace detection
+        self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
 
         # Initialize the celebration sound manager with this window as parent
         CelebrationSoundManager.initialize(self)
@@ -405,9 +408,10 @@ class TypingPracticeApp(QMainWindow):
 
     def _apply_settings(self) -> None:
         """Apply saved settings to the UI."""
-        # Dark mode
-        dark_mode = self.progress_store.get_setting("dark_mode", DEFAULT_DARK_MODE)
-        self._apply_theme(dark_mode)
+        # Load and apply theme
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        self.current_theme = get_theme(theme_name)
+        self._apply_theme()
 
         # Keyboard visibility
         show_keyboard = self.progress_store.get_setting("show_keyboard", DEFAULT_SHOW_KEYBOARD)
@@ -425,64 +429,84 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
 
-    def _apply_theme(self, dark_mode: bool) -> None:
-        """Apply light or dark theme to the application."""
-        self.keyboard_widget.set_dark_mode(dark_mode)
-        self.finger_legend.set_dark_mode(dark_mode)
+    def _apply_theme(self) -> None:
+        """Apply the current theme to the application."""
+        theme = self.current_theme
+        
+        # Apply theme to keyboard widgets
+        self.keyboard_widget.set_theme(theme)
+        self.finger_legend.set_theme(theme)
 
-        if dark_mode:
-            self.setStyleSheet("""
-                QMainWindow, QWidget#content, QWidget#sidebar {
-                    background-color: #1e1e1e;
-                    color: #e0e0e0;
-                }
-                QLabel {
-                    color: #e0e0e0;
-                }
-                QTextEdit {
-                    background-color: #2d2d2d;
-                    color: #e0e0e0;
-                    border: 2px solid #555;
-                }
-                QListWidget {
-                    background-color: #2d2d2d;
-                    color: #e0e0e0;
-                    border: none;
-                }
-                QListWidget::item:selected {
-                    background-color: #0d47a1;
-                }
-                QPushButton {
-                    background-color: #424242;
-                    color: #e0e0e0;
-                    border: 1px solid #555;
-                }
-                QPushButton:hover {
-                    background-color: #535353;
-                }
-                QProgressBar {
-                    background-color: #2d2d2d;
-                    border: 2px solid #555;
-                }
-                QGroupBox {
-                    color: #e0e0e0;
-                    border: 1px solid #555;
-                }
-            """)
-            self.description_default_style = (
-                "padding: 10px; background-color: #1a237e; border-radius: 5px; font-size: 13px; color: #e0e0e0;"
-            )
-            self.target_text.setStyleSheet(
-                "padding: 20px; background-color: #2d2d2d; border: 2px solid #555; border-radius: 8px; line-height: 1.8; color: #e0e0e0;"
-            )
+        # Apply main stylesheet
+        self.setStyleSheet(f"""
+            QMainWindow, QWidget#content, QWidget#sidebar {{
+                background-color: {theme.bg_primary};
+                color: {theme.text_primary};
+            }}
+            QLabel {{
+                color: {theme.text_primary};
+            }}
+            QTextEdit {{
+                background-color: {theme.input_bg};
+                color: {theme.text_primary};
+                border: 2px solid {theme.input_border};
+            }}
+            QListWidget {{
+                background-color: {theme.list_bg};
+                color: {theme.text_primary};
+                border: none;
+            }}
+            QListWidget::item:selected {{
+                background-color: {theme.list_selected};
+            }}
+            QPushButton {{
+                background-color: {theme.button_bg};
+                color: {theme.button_text};
+                border: 1px solid {theme.button_border};
+            }}
+            QPushButton:hover {{
+                background-color: {theme.button_hover_bg};
+            }}
+            QProgressBar {{
+                background-color: {theme.progress_bar_bg};
+                border: 2px solid {theme.target_border};
+            }}
+            QProgressBar::chunk {{
+                background-color: {theme.progress_bar_fill};
+            }}
+            QGroupBox {{
+                color: {theme.text_primary};
+                border: 1px solid {theme.button_border};
+            }}
+        """)
+        
+        # Update description styles
+        self.description_default_style = (
+            f"padding: 10px; background-color: {theme.description_bg}; "
+            f"border-radius: 5px; font-size: 13px; color: {theme.text_primary};"
+        )
+        self.description_success_style = (
+            f"padding: 15px; background-color: {theme.description_success_bg}; "
+            f"border-radius: 5px; font-size: 14px; font-weight: bold; color: {theme.text_primary};"
+        )
+        self.description_completion_style = (
+            f"padding: 15px; background-color: {theme.description_complete_bg}; "
+            f"border-radius: 5px; font-size: 14px; font-weight: bold; color: {theme.text_primary};"
+        )
+        
+        # Update target text style
+        self.target_text.setStyleSheet(
+            f"padding: 20px; background-color: {theme.target_bg}; "
+            f"border: 2px solid {theme.target_border}; border-radius: 8px; "
+            f"line-height: 1.8; color: {theme.text_primary};"
+        )
+        
+        # Reapply current description style
+        if self.mode == "lesson":
+            lesson = self.lessons[self.current_lesson_index]
+            self._update_description(f"<b>Focus:</b> {lesson.description}", mode="default")
         else:
-            self.setStyleSheet("")
-            self.description_default_style = (
-                "padding: 10px; background-color: #e3f2fd; border-radius: 5px; font-size: 13px;"
-            )
-            self.target_text.setStyleSheet(
-                "padding: 20px; background-color: #f5f5f5; border: 2px solid #ccc; border-radius: 8px; line-height: 1.8;"
-            )
+            self._update_description(FREE_PRACTICE_DESCRIPTION, mode="default")
 
     def eventFilter(self, obj, event) -> bool:
         """Intercept key events to track backspace usage and enforce strict mode."""
@@ -757,6 +781,8 @@ class TypingPracticeApp(QMainWindow):
                     )
                 else:
                     errors += 1
+                    # Track the error for this specific key
+                    self.session.record_key_error(char)
                     html_parts.append(
                         '<span style="color: red; background-color: #ffcdd2; text-decoration: underline;">'
                         f"{styled_char}</span>"
@@ -924,6 +950,10 @@ class TypingPracticeApp(QMainWindow):
             text_length=len(self.current_target_text),
         )
         self.progress_store.add_session_record(record)
+        
+        # Update global key error statistics
+        if self.session.key_errors:
+            self.progress_store.update_key_error_stats(self.session.key_errors)
 
         if self.mode == "lesson":
             self._record_best_wpm(wpm)

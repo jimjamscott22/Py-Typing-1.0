@@ -17,7 +17,9 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - Tracks session results so you can monitor progress
 - Virtual keyboard with finger position guidance
 - Celebratory sound on perfect rounds (configurable)
-- Dark mode support
+- **5 beautiful themes** (Light, Dark, Solarized, Nord, Dracula)
+- **Visual progress charts** with matplotlib
+- **Keyboard error heatmap** showing problem keys
 - Strict mode to prevent backspacing
 - Free practice mode for custom text
 
@@ -32,7 +34,11 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
    ```
 2. Install dependencies:
    ```bash
-   pip install PyQt6
+   pip install -r requirements.txt
+   ```
+   Or manually:
+   ```bash
+   pip install PyQt6 matplotlib
    ```
 3. Run:
    ```bash

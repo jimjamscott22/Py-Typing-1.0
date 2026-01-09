@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -25,6 +26,15 @@ from PyQt6.QtWidgets import (
 
 from core.persistence import ProgressStore
 from core.models import Lesson
+from core.themes import get_theme_names, get_theme
+from core.charts import (
+    create_combined_progress_chart,
+    create_lesson_performance_chart,
+)
+from core.heatmap import (
+    create_keyboard_heatmap,
+    create_finger_error_chart,
+)
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -34,6 +44,7 @@ from core.constants import (
     DEFAULT_SHOW_CELEBRATION,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
+    DEFAULT_THEME,
 )
 
 class StatisticsDialog(QDialog):
@@ -69,6 +80,10 @@ class StatisticsDialog(QDialog):
         # History tab
         history_tab = self._create_history_tab()
         tabs.addTab(history_tab, "📜 History")
+
+        # Heatmap tab
+        heatmap_tab = self._create_heatmap_tab()
+        tabs.addTab(heatmap_tab, "🔥 Error Heatmap")
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -148,7 +163,7 @@ class StatisticsDialog(QDialog):
         return widget
 
     def _create_progress_tab(self) -> QWidget:
-        """Create the progress tab with text-based charts."""
+        """Create the progress tab with matplotlib charts."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -161,48 +176,41 @@ class StatisticsDialog(QDialog):
             layout.addWidget(empty_label)
             return widget
 
-        # WPM Progress (last 20 sessions)
-        wpm_group = QGroupBox("📈 WPM Progress (Last 20 Sessions)")
-        wpm_layout = QVBoxLayout(wpm_group)
-        
-        last_20 = history[-20:]
-        max_wpm = max((s.get("wpm", 0) for s in last_20), default=1)
-        
-        wpm_chart = QTextEdit()
-        wpm_chart.setReadOnly(True)
-        wpm_chart.setMaximumHeight(150)
-        wpm_chart.setFont(QFont("Courier New", 9))
-        
-        chart_lines = []
-        for i, s in enumerate(last_20):
-            wpm = s.get("wpm", 0)
-            bar_len = int((wpm / max(max_wpm, 1)) * 30)
-            bar = "█" * bar_len + "░" * (30 - bar_len)
-            chart_lines.append(f"#{i+1:2d} |{bar}| {wpm:3d} WPM")
-        
-        wpm_chart.setText("\n".join(chart_lines))
-        wpm_layout.addWidget(wpm_chart)
-        layout.addWidget(wpm_group)
+        # Get current theme
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
 
-        # Accuracy Progress
-        acc_group = QGroupBox("🎯 Accuracy Progress (Last 20 Sessions)")
-        acc_layout = QVBoxLayout(acc_group)
+        # Combined progress chart
+        progress_group = QGroupBox("📈 Performance Progress Over Time")
+        progress_layout = QVBoxLayout(progress_group)
         
-        acc_chart = QTextEdit()
-        acc_chart.setReadOnly(True)
-        acc_chart.setMaximumHeight(150)
-        acc_chart.setFont(QFont("Courier New", 9))
+        progress_chart_label = QLabel()
+        progress_pixmap = create_combined_progress_chart(history, theme, max_sessions=20)
+        if not progress_pixmap.isNull():
+            progress_chart_label.setPixmap(progress_pixmap)
+            progress_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            progress_chart_label.setText("No data available")
+            progress_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        chart_lines = []
-        for i, s in enumerate(last_20):
-            acc = s.get("accuracy", 0)
-            bar_len = int((acc / 100) * 30)
-            bar = "█" * bar_len + "░" * (30 - bar_len)
-            chart_lines.append(f"#{i+1:2d} |{bar}| {acc:5.1f}%")
+        progress_layout.addWidget(progress_chart_label)
+        layout.addWidget(progress_group)
+
+        # Lesson performance chart
+        lesson_group = QGroupBox("📊 Average Performance by Lesson")
+        lesson_layout = QVBoxLayout(lesson_group)
         
-        acc_chart.setText("\n".join(chart_lines))
-        acc_layout.addWidget(acc_chart)
-        layout.addWidget(acc_group)
+        lesson_chart_label = QLabel()
+        lesson_pixmap = create_lesson_performance_chart(history, theme)
+        if not lesson_pixmap.isNull():
+            lesson_chart_label.setPixmap(lesson_pixmap)
+            lesson_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            lesson_chart_label.setText("No data available")
+            lesson_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        lesson_layout.addWidget(lesson_chart_label)
+        layout.addWidget(lesson_group)
 
         layout.addStretch()
         return widget
@@ -332,6 +340,81 @@ class StatisticsDialog(QDialog):
 
         return widget
 
+    def _create_heatmap_tab(self) -> QWidget:
+        """Create the error heatmap tab showing problem keys."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        key_error_stats = self.progress_store.get_key_error_stats()
+
+        if not key_error_stats:
+            empty_label = QLabel("No error data yet. Complete some typing exercises to see your problem keys!")
+            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty_label)
+            return widget
+
+        # Get current theme
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
+        # Keyboard heatmap
+        heatmap_group = QGroupBox("⌨️ Keyboard Error Heatmap")
+        heatmap_layout = QVBoxLayout(heatmap_group)
+        
+        heatmap_label = QLabel()
+        heatmap_pixmap = create_keyboard_heatmap(key_error_stats, theme)
+        if not heatmap_pixmap.isNull():
+            heatmap_label.setPixmap(heatmap_pixmap)
+            heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            heatmap_label.setText("No data available")
+            heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        heatmap_layout.addWidget(heatmap_label)
+        layout.addWidget(heatmap_group)
+
+        # Finger error chart
+        finger_group = QGroupBox("👆 Errors by Finger")
+        finger_layout = QVBoxLayout(finger_group)
+        
+        finger_chart_label = QLabel()
+        finger_pixmap = create_finger_error_chart(key_error_stats, theme)
+        if not finger_pixmap.isNull():
+            finger_chart_label.setPixmap(finger_pixmap)
+            finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            finger_chart_label.setText("No data available")
+            finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        finger_layout.addWidget(finger_chart_label)
+        layout.addWidget(finger_group)
+
+        # Top problem keys list
+        problem_keys_group = QGroupBox("🎯 Most Problematic Keys")
+        problem_keys_layout = QVBoxLayout(problem_keys_group)
+        
+        # Sort keys by error count
+        sorted_errors = sorted(key_error_stats.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        problem_text = QTextEdit()
+        problem_text.setReadOnly(True)
+        problem_text.setMaximumHeight(120)
+        problem_text.setFont(QFont("Courier New", 11))
+        
+        lines = ["Rank | Key    | Errors"]
+        lines.append("-" * 25)
+        for i, (key, count) in enumerate(sorted_errors, 1):
+            key_display = key.upper() if key != ' ' else 'SPACE'
+            lines.append(f" {i:2d}  | {key_display:6s} | {count:4d}")
+        
+        problem_text.setText("\n".join(lines))
+        problem_keys_layout.addWidget(problem_text)
+        layout.addWidget(problem_keys_group)
+
+        layout.addStretch()
+        return widget
+
     def _export_csv(self) -> None:
         """Export session history to CSV file."""
         history = self.progress_store.get_session_history()
@@ -435,12 +518,14 @@ class SettingsDialog(QDialog):
         display_group = QGroupBox("🖥️ Display Settings")
         display_layout = QFormLayout(display_group)
 
-        # Dark mode
-        self.dark_mode_check = QCheckBox("Dark Mode")
-        self.dark_mode_check.setChecked(
-            self.progress_store.get_setting("dark_mode", DEFAULT_DARK_MODE)
-        )
-        display_layout.addRow(self.dark_mode_check)
+        # Theme selector
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(get_theme_names())
+        current_theme = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme_index = self.theme_combo.findText(current_theme)
+        if theme_index >= 0:
+            self.theme_combo.setCurrentIndex(theme_index)
+        display_layout.addRow("Theme:", self.theme_combo)
 
         # Celebration animation
         self.celebration_check = QCheckBox("Show Celebration Animation")
@@ -501,7 +586,7 @@ class SettingsDialog(QDialog):
         self.progress_store.set_setting("backspace_penalty", self.wpm_penalty_slider.value())
         self.progress_store.set_setting("backspace_accuracy_weight", self.acc_weight_slider.value() / 10)
         self.progress_store.set_setting("strict_mode", self.strict_mode_check.isChecked())
-        self.progress_store.set_setting("dark_mode", self.dark_mode_check.isChecked())
+        self.progress_store.set_setting("theme", self.theme_combo.currentText())
         self.progress_store.set_setting("show_celebration", self.celebration_check.isChecked())
         self.progress_store.set_setting("show_keyboard", self.show_keyboard_check.isChecked())
         self.progress_store.set_setting("font_size", self.font_size_spin.value())
