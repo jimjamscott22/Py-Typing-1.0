@@ -45,6 +45,7 @@
   "random_texts": {
     "7": "he went their saw feel happy old why an had gets help other as room small question level run call lose after available make from"
   },
+  "key_error_stats": {},
   "settings": {
     "backspace_penalty": 3,
     "backspace_accuracy_weight": 0.5,
