@@ -78,7 +78,7 @@ This document summarizes the new features added to the Py-Typing-1.0 application
 To use these new features, install the updated dependencies:
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 The only new dependency is `matplotlib` for chart generation.

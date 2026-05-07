@@ -1,6 +1,6 @@
 @echo off
 REM Build the Typing Practice application into a standalone executable
-REM Requirements: PyInstaller must be installed (pip install PyInstaller)
+REM Requirements: PyInstaller must be installed (uv add --dev pyinstaller)
 
 echo Building Typing Practice executable...
 echo.

@@ -32,24 +32,20 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
    git clone <repository-url>
    cd Py-Typing-1.0
    ```
-2. Install dependencies:
+2. Install dependencies (using uv):
    ```bash
-   pip install -r requirements.txt
-   ```
-   Or manually:
-   ```bash
-   pip install PyQt6 matplotlib
+   uv sync
    ```
 3. Run:
    ```bash
-   python main.py
+   uv run main.py
    ```
 
 ### Option 2: Build a standalone executable (Windows)
 
 1. Install PyInstaller:
    ```bash
-   pip install PyInstaller
+   uv add --dev pyinstaller
    ```
 2. Run the build script:
    ```bash

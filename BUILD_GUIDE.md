@@ -66,7 +66,7 @@ Then rebuild using the same commands above.
 ## Troubleshooting
 
 ### Build fails with "Module not found"
-- Install the missing module: `pip install module_name`
+- Install the missing module: `uv add module_name`
 - Add it to `hiddenimports` in the spec file
 
 ### Executable is very large
