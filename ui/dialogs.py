@@ -39,11 +39,13 @@ from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
     DEFAULT_STRICT_MODE,
-    DEFAULT_DARK_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
+    DEFAULT_DEVELOPER_KEYS_LENGTH,
+    DEFAULT_DEVELOPER_KEYS_MODE,
+    DEVELOPER_KEYS_MODES,
     DEFAULT_THEME,
 )
 
@@ -221,7 +223,8 @@ class StatisticsDialog(QDialog):
         layout = QVBoxLayout(widget)
 
         history = self.progress_store.get_session_history()
-        best_wpm_data = self.progress_store.data.get("best_wpm", {})
+        raw_best_wpm_data = self.progress_store.data.get("best_wpm", {})
+        best_wpm_map = raw_best_wpm_data if isinstance(raw_best_wpm_data, dict) else {}
 
         # Best scores group
         best_group = QGroupBox("🏆 Personal Bests")
@@ -256,7 +259,7 @@ class StatisticsDialog(QDialog):
                 lesson_counts[name] = lesson_counts.get(name, 0) + 1
             
             if lesson_counts:
-                most_practiced = max(lesson_counts, key=lesson_counts.get)
+                most_practiced = max(lesson_counts.items(), key=lambda item: item[1])[0]
                 best_layout.addWidget(QLabel("Most Practiced Lesson:"), 2, 0)
                 mp_label = QLabel(f"{most_practiced} ({lesson_counts[most_practiced]} times)")
                 mp_label.setStyleSheet("font-size: 14px; color: #FF9800;")
@@ -272,7 +275,7 @@ class StatisticsDialog(QDialog):
                 
                 weak_lessons = {k: sum(v)/len(v) for k, v in lesson_wpms.items() if len(v) >= 2}
                 if weak_lessons:
-                    weakest = min(weak_lessons, key=weak_lessons.get)
+                    weakest = min(weak_lessons.items(), key=lambda item: item[1])[0]
                     best_layout.addWidget(QLabel("Needs Practice:"), 3, 0)
                     weak_label = QLabel(f"{weakest} (avg {weak_lessons[weakest]:.0f} WPM)")
                     weak_label.setStyleSheet("font-size: 14px; color: #F06292;")
@@ -293,7 +296,7 @@ class StatisticsDialog(QDialog):
         
         lines = []
         for i, lesson in enumerate(self.lessons):
-            best = best_wpm_data.get(str(i), 0)
+            best = best_wpm_map.get(str(i), 0)
             lines.append(f"  {lesson.title}: {best} WPM")
         
         lesson_text.setText("\n".join(lines) if lines else "No data yet")
@@ -568,6 +571,30 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(random_group)
 
+        # Developer Keys Settings
+        developer_group = QGroupBox("⌨️ Developer Keys Settings")
+        developer_layout = QFormLayout(developer_group)
+
+        self.developer_length_spin = QSpinBox()
+        self.developer_length_spin.setRange(8, 100)
+        self.developer_length_spin.setValue(
+            self.progress_store.get_setting("developer_keys_length", DEFAULT_DEVELOPER_KEYS_LENGTH)
+        )
+        self.developer_length_spin.setSuffix(" tokens")
+        self.developer_length_spin.setToolTip("Number of developer-key tokens to generate")
+        developer_layout.addRow("Drill Length:", self.developer_length_spin)
+
+        self.developer_mode_combo = QComboBox()
+        self.developer_mode_combo.addItems(list(DEVELOPER_KEYS_MODES))
+        current_mode = self.progress_store.get_setting("developer_keys_mode", DEFAULT_DEVELOPER_KEYS_MODE)
+        mode_index = self.developer_mode_combo.findText(current_mode)
+        if mode_index >= 0:
+            self.developer_mode_combo.setCurrentIndex(mode_index)
+        self.developer_mode_combo.setToolTip("Choose symbol-heavy or code-snippet-heavy drills")
+        developer_layout.addRow("Mode:", self.developer_mode_combo)
+
+        layout.addWidget(developer_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         
@@ -591,5 +618,7 @@ class SettingsDialog(QDialog):
         self.progress_store.set_setting("show_keyboard", self.show_keyboard_check.isChecked())
         self.progress_store.set_setting("font_size", self.font_size_spin.value())
         self.progress_store.set_setting("random_word_count", self.word_count_spin.value())
+        self.progress_store.set_setting("developer_keys_length", self.developer_length_spin.value())
+        self.progress_store.set_setting("developer_keys_mode", self.developer_mode_combo.currentText())
         self.settings_changed.emit()
         self.accept()

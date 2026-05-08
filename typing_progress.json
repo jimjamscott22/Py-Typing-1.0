@@ -1,6 +1,6 @@
 {
-  "current_lesson_index": 0,
-  "current_text_index": 1,
+  "current_lesson_index": 11,
+  "current_text_index": 0,
   "best_wpm": {
     "0": 46
   },
@@ -40,10 +40,30 @@
       "backspaces": 0,
       "duration_seconds": 8.9,
       "text_length": 29
+    },
+    {
+      "timestamp": "2026-05-07T19:59:32.329905",
+      "lesson_index": 0,
+      "text_index": 1,
+      "lesson_name": "Home Row - Basic",
+      "wpm": 34,
+      "accuracy": 100.0,
+      "errors": 0,
+      "backspaces": 0,
+      "duration_seconds": 10.0,
+      "text_length": 29
     }
   ],
   "random_texts": {
-    "7": "he went their saw feel happy old why an had gets help other as room small question level run call lose after available make from"
+    "7": "he went their saw feel happy old why an had gets help other as room small question level run call lose after available make from",
+    "11": "debug null -= null import ] from ) = %= ` debug config test } -= true variable import \\ @ variable % from"
+  },
+  "developer_texts": {
+    "11": {
+      "text": "pass None with def await await debug continue index < try debug",
+      "token_count": 12,
+      "mode": "code-snippet-heavy"
+    }
   },
   "key_error_stats": {},
   "settings": {
@@ -54,6 +74,8 @@
     "show_keyboard": true,
     "show_celebration": true,
     "font_size": 16,
-    "random_word_count": 25
+    "random_word_count": 25,
+    "developer_keys_length": 12,
+    "developer_keys_mode": "code-snippet-heavy"
   }
 }

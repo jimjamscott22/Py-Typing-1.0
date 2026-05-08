@@ -5,18 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtGui import (
-    QColor,
-    QFont,
-    QIcon,
-    QLinearGradient,
-    QPainter,
-    QPen,
-    QPixmap,
-    QTextCharFormat,
-    QTextCursor,
-    QBrush,
-)
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -33,18 +22,20 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession, SessionRecord
 from core.persistence import ProgressStore
 from core.lessons import build_lessons
-from core.wordgen import generate_text
+from core.wordgen import generate_text, generate_developer_text
 from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
+from core.scoring import calculate_wpm, calculate_accuracy
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
     DEFAULT_STRICT_MODE,
-    DEFAULT_DARK_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
+    DEFAULT_DEVELOPER_KEYS_LENGTH,
+    DEFAULT_DEVELOPER_KEYS_MODE,
     DEFAULT_THEME,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
@@ -74,17 +65,20 @@ class TypingPracticeApp(QMainWindow):
         self.lessons = build_lessons()
         self.session = TypingSession()
 
+        raw_best_wpm = self.progress_store.data.get("best_wpm", {})
+        if not isinstance(raw_best_wpm, dict):
+            raw_best_wpm = {}
         self.best_wpm: Dict[str, int] = {
             str(key): int(value)
-            for key, value in self.progress_store.data.get("best_wpm", {}).items()
+            for key, value in raw_best_wpm.items()
             if isinstance(value, (int, float))
         }
 
         self.current_lesson_index = self._clamp_index(
-            int(self.progress_store.data.get("current_lesson_index", 0)),
+            self._safe_int(self.progress_store.data.get("current_lesson_index", 0)),
             len(self.lessons),
         )
-        self.current_text_index = max(0, int(self.progress_store.data.get("current_text_index", 0)))
+        self.current_text_index = max(0, self._safe_int(self.progress_store.data.get("current_text_index", 0)))
         self.current_target_text = ""
 
         self._configure_window()
@@ -97,6 +91,13 @@ class TypingPracticeApp(QMainWindow):
         if upper <= 0:
             return 0
         return max(0, min(value, upper - 1))
+
+    @staticmethod
+    def _safe_int(value: object, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _configure_window(self) -> None:
         self.setWindowTitle("Touch Typing Practice")
@@ -387,7 +388,7 @@ class TypingPracticeApp(QMainWindow):
         self.regenerate_button.setStyleSheet(
             "background-color: #FF9800; color: white; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 5px;"
         )
-        self.regenerate_button.clicked.connect(self.regenerate_random_text)
+        self.regenerate_button.clicked.connect(self.regenerate_generated_text)
         self.regenerate_button.setVisible(False)
         button_layout.addWidget(self.regenerate_button)
 
@@ -428,6 +429,14 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
+
+        # Refresh the active developer drill if the settings changed.
+        if self.mode == "lesson" and self.lessons:
+            current_lesson = self.lessons[self.current_lesson_index]
+            if current_lesson.title == "Developer Keys":
+                self.current_target_text = ""
+                self.progress_store.clear_developer_text(self.current_lesson_index)
+                self.load_current_text()
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -628,9 +637,15 @@ class TypingPracticeApp(QMainWindow):
         self.current_lesson_index = index
         lesson = self.lessons[index]
 
-        # Show regenerate button only for Random Words lesson
-        is_random = lesson.title == "Random Words"
-        self.regenerate_button.setVisible(is_random)
+        # Show regenerate button for generated drill lessons.
+        is_generated_lesson = lesson.title in {"Random Words", "Developer Keys"}
+        self.regenerate_button.setVisible(is_generated_lesson)
+        if lesson.title == "Developer Keys":
+            self.regenerate_button.setText("⌨️ Generate New Keys")
+            self.regenerate_button.setToolTip("Generate a new developer-key drill")
+        else:
+            self.regenerate_button.setText("🎲 Generate New Words")
+            self.regenerate_button.setToolTip("Generate a new random word drill")
 
         if reset_text_index or self.current_text_index >= len(lesson.texts):
             self.current_text_index = 0
@@ -650,36 +665,91 @@ class TypingPracticeApp(QMainWindow):
             return
 
         self.current_text_index = min(self.current_text_index, len(lesson.texts) - 1)
-        # Support generated random word drills when a lesson uses the special marker
+        # Support generated drills when a lesson uses a special marker or title.
         candidate = lesson.texts[self.current_text_index]
-        if candidate == "__RANDOM__" or lesson.title == "Random Words":
-            # Try to load persisted text first
-            persisted = self.progress_store.get_random_text(self.current_lesson_index)
-            if persisted:
-                self.current_target_text = persisted
-            else:
-                # Generate new text with configured word count
-                word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
-                self.current_target_text = generate_text(word_count)
-                # Persist the generated text
-                self.progress_store.set_random_text(self.current_lesson_index, self.current_target_text)
+        generated_kind = self._get_generated_lesson_kind(lesson, candidate)
+        if generated_kind:
+            self.current_target_text = self._get_or_create_generated_text(generated_kind)
         else:
             self.current_target_text = candidate
         self.target_text.setText(self.current_target_text)
         self.reset_exercise()
         self._save_progress()
 
-    def regenerate_random_text(self) -> None:
-        """Generate new random text for the Random Words lesson."""
+    def regenerate_generated_text(self) -> None:
+        """Generate new text for generated drill lessons."""
         lesson = self.lessons[self.current_lesson_index]
-        if lesson.title == "Random Words":
-            # Clear persisted text and generate new
-            self.progress_store.clear_random_text(self.current_lesson_index)
-            word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
-            self.current_target_text = generate_text(word_count)
-            self.progress_store.set_random_text(self.current_lesson_index, self.current_target_text)
+        generated_kind = self._get_generated_lesson_kind(lesson, lesson.texts[0] if lesson.texts else "")
+        if generated_kind:
+            # Clear persisted text and generate new content for the active drill.
+            if generated_kind == "developer":
+                self.progress_store.clear_developer_text(self.current_lesson_index)
+            else:
+                self.progress_store.clear_random_text(self.current_lesson_index)
+            self.current_target_text = self._generate_practice_text(generated_kind)
+            if generated_kind == "developer":
+                self.progress_store.set_developer_text(
+                    self.current_lesson_index,
+                    self.current_target_text,
+                    token_count=self._developer_keys_length(),
+                    mode=self._developer_keys_mode(),
+                )
+            else:
+                self.progress_store.set_random_text(self.current_lesson_index, self.current_target_text)
             self.target_text.setText(self.current_target_text)
             self.reset_exercise()
+
+    def _get_generated_lesson_kind(self, lesson, candidate: str) -> Optional[str]:
+        if candidate == "__RANDOM__" or lesson.title == "Random Words":
+            return "random"
+        if candidate == "__DEVELOPER__" or lesson.title == "Developer Keys":
+            return "developer"
+        return None
+
+    def _generate_practice_text(self, generated_kind: str) -> str:
+        if generated_kind == "random":
+            word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
+            return generate_text(word_count)
+        if generated_kind == "developer":
+            return generate_developer_text(self._developer_keys_length(), self._developer_keys_mode())
+        return ""
+
+    def _get_or_create_generated_text(self, generated_kind: str) -> str:
+        if generated_kind == "developer":
+            persisted = self.progress_store.get_developer_text(self.current_lesson_index)
+            current_length = self._developer_keys_length()
+            current_mode = self._developer_keys_mode()
+            if isinstance(persisted, dict):
+                persisted_text = persisted.get("text")
+                if (
+                    isinstance(persisted_text, str)
+                    and persisted.get("token_count") == current_length
+                    and persisted.get("mode") == current_mode
+                ):
+                    return persisted_text
+
+            generated_text = self._generate_practice_text(generated_kind)
+            self.progress_store.set_developer_text(
+                self.current_lesson_index,
+                generated_text,
+                token_count=current_length,
+                mode=current_mode,
+            )
+            return generated_text
+
+        persisted = self.progress_store.get_random_text(self.current_lesson_index)
+        if persisted:
+            return persisted
+
+        generated_text = self._generate_practice_text(generated_kind)
+        self.progress_store.set_random_text(self.current_lesson_index, generated_text)
+        return generated_text
+
+    def _developer_keys_length(self) -> int:
+        return self.progress_store.get_setting("developer_keys_length", DEFAULT_DEVELOPER_KEYS_LENGTH)
+
+    def _developer_keys_mode(self) -> str:
+        return self.progress_store.get_setting("developer_keys_mode", DEFAULT_DEVELOPER_KEYS_MODE)
 
     def reset_exercise(self) -> None:
         """Clear typing data and reset statistics."""
@@ -839,59 +909,37 @@ class TypingPracticeApp(QMainWindow):
         self.wpm_label.setText(f"WPM: {wpm}")
 
     def _calculate_wpm(self, typed: str, elapsed: Optional[float] = None) -> int:
-        """
-        Calculate WPM with backspace penalty.
-        
-        Formula: effective_wpm = raw_wpm - (backspace_count * penalty_factor)
-        The penalty reduces WPM to discourage excessive backspace usage.
-        """
-        if not typed:
-            return 0
         if elapsed is None:
-            if not self.session.start_time:
-                return 0
-            elapsed = time.time() - self.session.start_time
-        if elapsed <= 0:
-            return 0
-        
-        # Calculate raw WPM
-        words = len(typed) / 5
-        minutes = elapsed / 60
-        raw_wpm = int(words / minutes) if minutes > 0 else 0
-        
-        # Apply backspace penalty
-        penalty_factor = self.progress_store.get_setting("backspace_penalty", DEFAULT_BACKSPACE_PENALTY)
-        backspace_penalty = self.session.backspace_count * penalty_factor
-        
-        effective_wpm = max(0, raw_wpm - backspace_penalty)
-        return effective_wpm
+            elapsed = (
+                time.time() - self.session.start_time
+                if self.session.start_time
+                else None
+            )
+        penalty_factor = self.progress_store.get_setting(
+            "backspace_penalty", DEFAULT_BACKSPACE_PENALTY
+        )
+        return calculate_wpm(
+            typed=typed,
+            elapsed_seconds=elapsed,
+            backspace_count=self.session.backspace_count,
+            penalty_factor=penalty_factor,
+        )
 
     def _update_accuracy_label(self, typed: str) -> None:
         accuracy = self._calculate_accuracy(typed)
         self.accuracy_label.setText(f"Accuracy: {accuracy:.1f}%")
 
     def _calculate_accuracy(self, typed: str) -> float:
-        """
-        Calculate accuracy with backspace penalty.
-        
-        Formula: total_errors = mismatch_errors + extra_char_errors + (backspace_count * weight)
-        Backspaces are treated as partial errors to penalize correction-heavy typing.
-        """
-        if not typed:
-            return 100.0
-        
-        extra_errors = max(len(typed) - len(self.current_target_text), 0)
-        
-        # Add weighted backspace errors
         backspace_weight = self.progress_store.get_setting(
             "backspace_accuracy_weight", DEFAULT_BACKSPACE_ACCURACY_WEIGHT
         )
-        backspace_errors = self.session.backspace_count * backspace_weight
-        
-        total_errors = self.session.errors + extra_errors + backspace_errors
-        correct = max(len(typed) - total_errors, 0)
-        
-        return (correct / len(typed)) * 100 if typed else 100.0
+        return calculate_accuracy(
+            typed=typed,
+            target=self.current_target_text,
+            mismatch_errors=self.session.errors,
+            backspace_count=self.session.backspace_count,
+            backspace_weight=backspace_weight,
+        )
 
     def _update_progress_indicators(self, typed: str, target: str) -> None:
         if not target:

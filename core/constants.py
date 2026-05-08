@@ -7,7 +7,11 @@ DEFAULT_SHOW_KEYBOARD = True
 DEFAULT_SHOW_CELEBRATION = True
 DEFAULT_FONT_SIZE = 16
 DEFAULT_RANDOM_WORD_COUNT = 25  # Number of random words to generate
+DEFAULT_DEVELOPER_KEYS_LENGTH = 24
+DEFAULT_DEVELOPER_KEYS_MODE = "symbol-heavy"
 DEFAULT_THEME = "Light"  # Default theme name
+
+DEVELOPER_KEYS_MODES = ("symbol-heavy", "code-snippet-heavy")
 
 FREE_PRACTICE_DESCRIPTION = (
     "Free practice mode: paste or import any text, click <b>Use Custom Text</b>, and start typing."

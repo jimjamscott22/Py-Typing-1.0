@@ -49,6 +49,23 @@ _COMMON_WORDS: List[str] = [
 ]
 
 
+# Tokens for developer-key drills: symbols, operators, and code-friendly snippets.
+DEVELOPER_SYMBOL_TOKENS: List[str] = [
+    "(", ")", "[", "]", "{", "}", "<", ">",
+    "=", "==", "!=", "+=", "-=", "*=", "/=", "%=", "->", "=>",
+    "::", ":", ";", ",", ".", "...", "/", "\\", "|", "&", "*", "%", "$", "#", "@", "`", "~",
+]
+
+DEVELOPER_CODE_TOKENS: List[str] = [
+    "if", "else", "for", "while", "def", "class", "return", "import", "from", "print", "lambda",
+    "pass", "break", "continue", "true", "false", "null", "None", "self", "main",
+    "function", "variable", "count", "index", "value", "result", "config", "debug", "test",
+    "try", "except", "with", "yield", "async", "await", "match", "case",
+]
+
+DEVELOPER_TOKENS: List[str] = DEVELOPER_SYMBOL_TOKENS + DEVELOPER_CODE_TOKENS
+
+
 def generate_text(word_count: int = 25) -> str:
     """Return a random sequence of common words joined by spaces.
 
@@ -61,3 +78,25 @@ def generate_text(word_count: int = 25) -> str:
     if word_count <= 0:
         return ""
     return " ".join(random.choice(_COMMON_WORDS) for _ in range(word_count))
+
+
+def generate_developer_text(token_count: int = 20, mode: str = "symbol-heavy") -> str:
+    """Return a random sequence of developer-oriented keys and snippets.
+
+    Args:
+        token_count: Number of developer tokens to generate.
+        mode: Either "symbol-heavy" or "code-snippet-heavy".
+
+    Returns:
+        A single string containing `token_count` tokens separated by spaces.
+    """
+    if token_count <= 0:
+        return ""
+
+    if mode == "code-snippet-heavy":
+        pool = DEVELOPER_CODE_TOKENS + DEVELOPER_SYMBOL_TOKENS[:8]
+    else:
+        pool = DEVELOPER_SYMBOL_TOKENS
+
+    return " ".join(random.choice(pool) for _ in range(token_count))
+

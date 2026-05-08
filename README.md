@@ -1,6 +1,6 @@
 # Py-Typing-1.0
 
-Train your typing speed and accuracy in minutes — lightweight, local, and designed for real improvement.
+Train your typing speed and accuracy in minutes — lightweight, local, and designed for real improvement, including focused drills like Developer Keys.
 
 ## Why try Py-Typing-1.0?
 
@@ -20,6 +20,7 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - **5 beautiful themes** (Light, Dark, Solarized, Nord, Dracula)
 - **Visual progress charts** with matplotlib
 - **Keyboard error heatmap** showing problem keys
+- **Developer Keys** practice mode for symbols and code-friendly drills
 - Strict mode to prevent backspacing
 - Free practice mode for custom text
 

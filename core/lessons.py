@@ -118,4 +118,9 @@ def build_lessons() -> List[Lesson]:
                 ),
             ],
         ),
+        Lesson(
+            title="Developer Keys",
+            description="Practice developer symbols, operators, and code-friendly key sequences",
+            texts=["__DEVELOPER__"],
+        ),
     ]
