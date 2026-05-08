@@ -2,10 +2,10 @@ import html
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -40,8 +40,15 @@ from core.constants import (
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
 )
+from core.best_wpm import BestWpmTracker
 from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
 from ui.dialogs import StatisticsDialog, SettingsDialog
+from ui.styles import (
+    build_main_stylesheet,
+    build_target_text_style,
+    build_description_styles,
+)
+from ui.formats import make_input_formats
 
 class TypingPracticeApp(QMainWindow):
     """Main application window for touch typing practice."""
@@ -65,14 +72,7 @@ class TypingPracticeApp(QMainWindow):
         self.lessons = build_lessons()
         self.session = TypingSession()
 
-        raw_best_wpm = self.progress_store.data.get("best_wpm", {})
-        if not isinstance(raw_best_wpm, dict):
-            raw_best_wpm = {}
-        self.best_wpm: Dict[str, int] = {
-            str(key): int(value)
-            for key, value in raw_best_wpm.items()
-            if isinstance(value, (int, float))
-        }
+        self.best_wpm = BestWpmTracker.from_raw(self.progress_store.data.get("best_wpm"))
 
         self.current_lesson_index = self._clamp_index(
             self._safe_int(self.progress_store.data.get("current_lesson_index", 0)),
@@ -278,20 +278,11 @@ class TypingPracticeApp(QMainWindow):
         
         layout.addWidget(self.typing_input)
 
-        self.input_default_format = QTextCharFormat()
-
-        self.correct_char_format = QTextCharFormat()
-        self.correct_char_format.setForeground(QColor("#2e7d32"))
-        self.correct_char_format.setBackground(QColor("#c8e6c9"))
-
-        self.error_char_format = QTextCharFormat()
-        self.error_char_format.setForeground(QColor("#c62828"))
-        self.error_char_format.setBackground(QColor("#ffcdd2"))
-        self.error_char_format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
-
-        self.extra_char_format = QTextCharFormat()
-        self.extra_char_format.setForeground(QColor("#6a1b9a"))
-        self.extra_char_format.setBackground(QColor("#f3e5f5"))
+        formats = make_input_formats()
+        self.input_default_format = formats.default
+        self.correct_char_format = formats.correct
+        self.error_char_format = formats.error
+        self.extra_char_format = formats.extra
 
     def _add_stats_section(self, layout: QVBoxLayout) -> None:
         stats_layout = QHBoxLayout()
@@ -441,76 +432,19 @@ class TypingPracticeApp(QMainWindow):
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
         theme = self.current_theme
-        
-        # Apply theme to keyboard widgets
+
         self.keyboard_widget.set_theme(theme)
         self.finger_legend.set_theme(theme)
 
-        # Apply main stylesheet
-        self.setStyleSheet(f"""
-            QMainWindow, QWidget#content, QWidget#sidebar {{
-                background-color: {theme.bg_primary};
-                color: {theme.text_primary};
-            }}
-            QLabel {{
-                color: {theme.text_primary};
-            }}
-            QTextEdit {{
-                background-color: {theme.input_bg};
-                color: {theme.text_primary};
-                border: 2px solid {theme.input_border};
-            }}
-            QListWidget {{
-                background-color: {theme.list_bg};
-                color: {theme.text_primary};
-                border: none;
-            }}
-            QListWidget::item:selected {{
-                background-color: {theme.list_selected};
-            }}
-            QPushButton {{
-                background-color: {theme.button_bg};
-                color: {theme.button_text};
-                border: 1px solid {theme.button_border};
-            }}
-            QPushButton:hover {{
-                background-color: {theme.button_hover_bg};
-            }}
-            QProgressBar {{
-                background-color: {theme.progress_bar_bg};
-                border: 2px solid {theme.target_border};
-            }}
-            QProgressBar::chunk {{
-                background-color: {theme.progress_bar_fill};
-            }}
-            QGroupBox {{
-                color: {theme.text_primary};
-                border: 1px solid {theme.button_border};
-            }}
-        """)
-        
-        # Update description styles
-        self.description_default_style = (
-            f"padding: 10px; background-color: {theme.description_bg}; "
-            f"border-radius: 5px; font-size: 13px; color: {theme.text_primary};"
-        )
-        self.description_success_style = (
-            f"padding: 15px; background-color: {theme.description_success_bg}; "
-            f"border-radius: 5px; font-size: 14px; font-weight: bold; color: {theme.text_primary};"
-        )
-        self.description_completion_style = (
-            f"padding: 15px; background-color: {theme.description_complete_bg}; "
-            f"border-radius: 5px; font-size: 14px; font-weight: bold; color: {theme.text_primary};"
-        )
-        
-        # Update target text style
-        self.target_text.setStyleSheet(
-            f"padding: 20px; background-color: {theme.target_bg}; "
-            f"border: 2px solid {theme.target_border}; border-radius: 8px; "
-            f"line-height: 1.8; color: {theme.text_primary};"
-        )
-        
-        # Reapply current description style
+        self.setStyleSheet(build_main_stylesheet(theme))
+
+        description_styles = build_description_styles(theme)
+        self.description_default_style = description_styles["default"]
+        self.description_success_style = description_styles["success"]
+        self.description_completion_style = description_styles["complete"]
+
+        self.target_text.setStyleSheet(build_target_text_style(theme))
+
         if self.mode == "lesson":
             lesson = self.lessons[self.current_lesson_index]
             self._update_description(f"<b>Focus:</b> {lesson.description}", mode="default")
@@ -1015,9 +949,7 @@ class TypingPracticeApp(QMainWindow):
 
     def _record_best_wpm(self, wpm: int) -> None:
         lesson_key = str(self.current_lesson_index)
-        existing = self.best_wpm.get(lesson_key, 0)
-        if wpm > existing:
-            self.best_wpm[lesson_key] = wpm
+        if self.best_wpm.update(lesson_key, wpm):
             self._update_best_wpm_label()
             self._save_progress()
 
@@ -1049,7 +981,7 @@ class TypingPracticeApp(QMainWindow):
             self.best_wpm_label.setText("Best: --")
             return
         lesson_key = str(self.current_lesson_index)
-        best = self.best_wpm.get(lesson_key, 0)
+        best = self.best_wpm.get(lesson_key)
         self.best_wpm_label.setText(f"Best: {best}")
 
     def _save_progress(self) -> None:
@@ -1057,7 +989,7 @@ class TypingPracticeApp(QMainWindow):
             return
         self.progress_store.data["current_lesson_index"] = self.current_lesson_index
         self.progress_store.data["current_text_index"] = self.current_text_index
-        self.progress_store.data["best_wpm"] = self.best_wpm
+        self.progress_store.data["best_wpm"] = self.best_wpm.to_dict()
         self.progress_store.save()
 
     def _update_description(self, text: str, mode: str = "default") -> None:

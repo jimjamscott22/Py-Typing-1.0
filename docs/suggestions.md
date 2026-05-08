@@ -13,11 +13,21 @@ A high-level review of the Py-Typing-1.0 codebase with feature and optimization 
 
 ## Code-level optimizations
 
-- **`ui/main_window.py` is 1034 lines** and handles session logic, UI wiring, theme application, and completion handling. Extract a `SessionController` and a `StatsService` so the `QMainWindow` is just glue.
+### Completed
+
+- ✅ **Extracted scoring formula** into `core/scoring.py` (`calculate_wpm`, `calculate_accuracy`). `main_window.py` now delegates. Covered by 14 tests in `test_scoring.py`.
+- ✅ **Conservative split of `main_window.py`** (1082 → 1014 lines):
+  - `ui/styles.py` — `build_main_stylesheet`, `build_target_text_style`, `build_description_styles` (pure functions of `Theme`).
+  - `ui/formats.py` — `make_input_formats()` returns the four `QTextCharFormat` presets.
+  - `core/best_wpm.py` — `BestWpmTracker` encapsulates the per-lesson best-WPM dict (load/get/update/serialize). Covered by 10 tests in `test_best_wpm.py`.
+  - `main_window.py` no longer imports `QColor` or `QTextCharFormat` directly.
+
+### Still to do
+
+- **Aggressive split of `main_window.py`** — extract a `SessionController` owning session lifecycle (reset, completion, `on_text_changed` logic) so the `QMainWindow` becomes thin Qt glue. Risky: `on_text_changed` reads widgets directly, so the controller will need callbacks/signals.
 - **`on_text_changed`** recalculates on every keystroke. Fine today, but if live charts are added, throttle with a `QTimer.singleShot(0, ...)` debounce.
 - **`ProgressStore`** does a full JSON read/write on every `save()`. Fine at current scale; if history grows large, consider SQLite (stdlib, no extra dep).
 - **`TypingSession.record_key_error`** could also track `key_attempts`, enabling **per-key accuracy %** instead of raw error counts (more meaningful for rare keys).
-- **Extract the scoring formula** (`effective_wpm = raw_wpm - backspace_count × penalty`) into `core/scoring.py` so it's testable in isolation.
 
 ## Quality / polish
 
