@@ -1,8 +1,9 @@
 {
-  "current_lesson_index": 11,
-  "current_text_index": 0,
+  "current_lesson_index": 6,
+  "current_text_index": 2,
   "best_wpm": {
-    "0": 46
+    "0": 46,
+    "5": 5
   },
   "session_history": [
     {
@@ -52,6 +53,90 @@
       "backspaces": 0,
       "duration_seconds": 10.0,
       "text_length": 29
+    },
+    {
+      "timestamp": "2026-05-15T21:31:11.477179",
+      "lesson_index": 5,
+      "text_index": 0,
+      "lesson_name": "All Rows Combined",
+      "wpm": 0,
+      "accuracy": 96.0,
+      "errors": 0,
+      "backspaces": 2,
+      "duration_seconds": 51.9,
+      "text_length": 25
+    },
+    {
+      "timestamp": "2026-05-15T21:33:15.201133",
+      "lesson_index": 5,
+      "text_index": 1,
+      "lesson_name": "All Rows Combined",
+      "wpm": 0,
+      "accuracy": 89.1,
+      "errors": 0,
+      "backspaces": 5,
+      "duration_seconds": 40.2,
+      "text_length": 23
+    },
+    {
+      "timestamp": "2026-05-15T21:33:42.373385",
+      "lesson_index": 5,
+      "text_index": 2,
+      "lesson_name": "All Rows Combined",
+      "wpm": 5,
+      "accuracy": 90.0,
+      "errors": 0,
+      "backspaces": 5,
+      "duration_seconds": 14.7,
+      "text_length": 25
+    },
+    {
+      "timestamp": "2026-05-15T21:35:33.850250",
+      "lesson_index": 5,
+      "text_index": 3,
+      "lesson_name": "All Rows Combined",
+      "wpm": 0,
+      "accuracy": 84.8,
+      "errors": 0,
+      "backspaces": 10,
+      "duration_seconds": 63.2,
+      "text_length": 33
+    },
+    {
+      "timestamp": "2026-05-15T21:36:58.904999",
+      "lesson_index": 6,
+      "text_index": 0,
+      "lesson_name": "Common Words",
+      "wpm": 0,
+      "accuracy": 95.7,
+      "errors": 0,
+      "backspaces": 4,
+      "duration_seconds": 59.4,
+      "text_length": 47
+    },
+    {
+      "timestamp": "2026-05-15T21:38:00.728368",
+      "lesson_index": 6,
+      "text_index": 1,
+      "lesson_name": "Common Words",
+      "wpm": 0,
+      "accuracy": 94.7,
+      "errors": 0,
+      "backspaces": 5,
+      "duration_seconds": 55.5,
+      "text_length": 47
+    },
+    {
+      "timestamp": "2026-05-15T21:38:47.005658",
+      "lesson_index": 6,
+      "text_index": 2,
+      "lesson_name": "Common Words",
+      "wpm": 0,
+      "accuracy": 91.7,
+      "errors": 0,
+      "backspaces": 8,
+      "duration_seconds": 27.1,
+      "text_length": 48
     }
   ],
   "random_texts": {
@@ -60,12 +145,28 @@
   },
   "developer_texts": {
     "11": {
-      "text": "pass None with def await await debug continue index < try debug",
+      "text": "with > < ] None true ( main test None } count",
       "token_count": 12,
       "mode": "code-snippet-heavy"
     }
   },
-  "key_error_stats": {},
+  "key_error_stats": {
+    "n": 2,
+    "o": 3,
+    "t": 14,
+    "u": 11,
+    "e": 9,
+    "i": 10,
+    "c": 1,
+    "b": 3,
+    "m": 1,
+    " ": 8,
+    "h": 1,
+    "r": 1,
+    "s": 11,
+    "w": 5,
+    "a": 3
+  },
   "settings": {
     "backspace_penalty": 3,
     "backspace_accuracy_weight": 0.5,
@@ -73,9 +174,10 @@
     "dark_mode": false,
     "show_keyboard": true,
     "show_celebration": true,
-    "font_size": 16,
+    "font_size": 18,
     "random_word_count": 25,
     "developer_keys_length": 12,
-    "developer_keys_mode": "code-snippet-heavy"
+    "developer_keys_mode": "code-snippet-heavy",
+    "theme": "Light"
   }
 }
