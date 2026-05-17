@@ -31,6 +31,7 @@ class ProgressStore:
             "random_texts": {},  # Store generated random texts by lesson index
             "developer_texts": {},  # Store generated developer drills by lesson index
             "key_error_stats": {},  # Global statistics for key errors
+            "key_attempt_stats": {},  # Global statistics for key attempts (correct + incorrect)
             "settings": {
                 "backspace_penalty": DEFAULT_BACKSPACE_PENALTY,
                 "backspace_accuracy_weight": DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -95,7 +96,6 @@ class ProgressStore:
             history = history[-self.MAX_HISTORY_SIZE:]
         
         self.data["session_history"] = history
-        self.save()
 
     def get_session_history(self) -> List[Dict]:
         """Return the session history list."""
@@ -180,10 +180,22 @@ class ProgressStore:
 
         for key, count in key_errors.items():
             stats[key] = stats.get(key, 0) + count
-        
-        self.save()
     
     def get_key_error_stats(self) -> Dict[str, int]:
         """Get global key error statistics."""
         stats = self.data.get("key_error_stats", {})
+        return stats if isinstance(stats, dict) else {}
+
+    def update_key_attempt_stats(self, key_attempts: Dict[str, int]) -> None:
+        """Update global key attempt statistics with session data."""
+        stats = self.data.get("key_attempt_stats")
+        if not isinstance(stats, dict):
+            stats = {}
+            self.data["key_attempt_stats"] = stats
+        for key, count in key_attempts.items():
+            stats[key] = stats.get(key, 0) + count
+
+    def get_key_attempt_stats(self) -> Dict[str, int]:
+        """Get global key attempt statistics."""
+        stats = self.data.get("key_attempt_stats", {})
         return stats if isinstance(stats, dict) else {}

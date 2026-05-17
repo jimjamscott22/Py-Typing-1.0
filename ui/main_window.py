@@ -59,6 +59,7 @@ class TypingPracticeApp(QMainWindow):
         self.lesson_offset = 1
         self.mode = "lesson"
         self._previous_typed_length = 0  # Track for backspace detection
+        self._pending_display_update = False  # Guard for deferred display refresh
         self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
 
         # Initialize the celebration sound manager with this window as parent
@@ -125,6 +126,10 @@ class TypingPracticeApp(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, 'celebration_overlay'):
             self.celebration_overlay.resize(self.size())
+
+    def closeEvent(self, event) -> None:
+        self.progress_store.save()
+        super().closeEvent(event)
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
@@ -714,12 +719,19 @@ class TypingPracticeApp(QMainWindow):
             self.session.begin()
 
         self._previous_typed_length = len(self.session.typed_text)
-        
-        self.update_display()
-        self._update_keyboard_highlight()
+
+        if not self._pending_display_update:
+            self._pending_display_update = True
+            QTimer.singleShot(0, self._flush_display)
 
         if self.session.typed_text == self.current_target_text and self.current_target_text:
             self.on_completion()
+
+    def _flush_display(self) -> None:
+        """Deferred display refresh — called once per event-loop cycle regardless of keystroke count."""
+        self._pending_display_update = False
+        self.update_display()
+        self._update_keyboard_highlight()
 
     def _update_keyboard_highlight(self) -> None:
         """Update the keyboard to highlight the next key to press."""
@@ -779,6 +791,7 @@ class TypingPracticeApp(QMainWindow):
             styled_char = self._format_char(char)
             if index < len(typed):
                 typed_char = typed[index]
+                self.session.record_key_attempt(char)
                 if typed_char == char:
                     html_parts.append(
                         f'<span style="color: green; background-color: #c8e6c9;">{styled_char}</span>'
@@ -933,12 +946,16 @@ class TypingPracticeApp(QMainWindow):
         )
         self.progress_store.add_session_record(record)
         
-        # Update global key error statistics
+        # Update global key statistics
         if self.session.key_errors:
             self.progress_store.update_key_error_stats(self.session.key_errors)
+        if self.session.key_attempts:
+            self.progress_store.update_key_attempt_stats(self.session.key_attempts)
 
         if self.mode == "lesson":
             self._record_best_wpm(wpm)
+
+        self.progress_store.save()
 
         if self.progress_store.get_setting("show_celebration", DEFAULT_SHOW_CELEBRATION):
             self.celebration_overlay.start()
@@ -990,7 +1007,6 @@ class TypingPracticeApp(QMainWindow):
         self.progress_store.data["current_lesson_index"] = self.current_lesson_index
         self.progress_store.data["current_text_index"] = self.current_text_index
         self.progress_store.data["best_wpm"] = self.best_wpm.to_dict()
-        self.progress_store.save()
 
     def _update_description(self, text: str, mode: str = "default") -> None:
         style = {
