@@ -167,6 +167,7 @@
     "w": 5,
     "a": 3
   },
+  "key_attempt_stats": {},
   "settings": {
     "backspace_penalty": 3,
     "backspace_accuracy_weight": 0.5,
@@ -178,6 +179,6 @@
     "random_word_count": 25,
     "developer_keys_length": 12,
     "developer_keys_mode": "code-snippet-heavy",
-    "theme": "Light"
+    "theme": "Solarized Dark"
   }
 }
