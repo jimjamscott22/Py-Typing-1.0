@@ -1,9 +1,10 @@
 {
-  "current_lesson_index": 6,
-  "current_text_index": 2,
+  "current_lesson_index": 5,
+  "current_text_index": 0,
   "best_wpm": {
     "0": 46,
-    "5": 5
+    "5": 5,
+    "11": 25
   },
   "session_history": [
     {
@@ -137,6 +138,30 @@
       "backspaces": 8,
       "duration_seconds": 27.1,
       "text_length": 48
+    },
+    {
+      "timestamp": "2026-05-23T01:37:46.866100",
+      "lesson_index": 11,
+      "text_index": 0,
+      "lesson_name": "Developer Keys",
+      "wpm": 25,
+      "accuracy": 99.1,
+      "errors": 0,
+      "backspaces": 1,
+      "duration_seconds": 22.2,
+      "text_length": 53
+    },
+    {
+      "timestamp": "2026-05-23T01:38:21.108008",
+      "lesson_index": 5,
+      "text_index": 0,
+      "lesson_name": "All Rows Combined",
+      "wpm": 0,
+      "accuracy": 76.0,
+      "errors": 0,
+      "backspaces": 12,
+      "duration_seconds": 14.0,
+      "text_length": 25
     }
   ],
   "random_texts": {
@@ -145,8 +170,8 @@
   },
   "developer_texts": {
     "11": {
-      "text": "with > < ] None true ( main test None } count",
-      "token_count": 12,
+      "text": "debug lambda async continue yield class { for { break",
+      "token_count": 10,
       "mode": "code-snippet-heavy"
     }
   },
@@ -157,17 +182,48 @@
     "u": 11,
     "e": 9,
     "i": 10,
-    "c": 1,
-    "b": 3,
-    "m": 1,
-    " ": 8,
+    "c": 8,
+    "b": 4,
+    "m": 8,
+    " ": 11,
     "h": 1,
     "r": 1,
-    "s": 11,
+    "s": 12,
     "w": 5,
-    "a": 3
+    "a": 3,
+    "{": 1,
+    "k": 5,
+    "x": 15,
+    "p": 5
   },
-  "key_attempt_stats": {},
+  "key_attempt_stats": {
+    "d": 120,
+    "e": 153,
+    "b": 132,
+    "u": 135,
+    "g": 50,
+    " ": 339,
+    "l": 90,
+    "a": 150,
+    "m": 55,
+    "s": 75,
+    "y": 65,
+    "n": 127,
+    "c": 132,
+    "o": 96,
+    "t": 80,
+    "i": 98,
+    "{": 21,
+    "f": 36,
+    "r": 42,
+    "h": 47,
+    "q": 44,
+    "k": 37,
+    "w": 27,
+    "x": 21,
+    "j": 15,
+    "p": 6
+  },
   "settings": {
     "backspace_penalty": 3,
     "backspace_accuracy_weight": 0.5,
@@ -176,9 +232,9 @@
     "show_keyboard": true,
     "show_celebration": true,
     "font_size": 18,
-    "random_word_count": 25,
-    "developer_keys_length": 12,
+    "random_word_count": 15,
+    "developer_keys_length": 9,
     "developer_keys_mode": "code-snippet-heavy",
-    "theme": "Solarized Dark"
+    "theme": "Dracula"
   }
 }
