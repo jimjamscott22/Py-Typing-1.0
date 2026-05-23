@@ -22,12 +22,16 @@ A high-level review of the Py-Typing-1.0 codebase with feature and optimization 
   - `core/best_wpm.py` — `BestWpmTracker` encapsulates the per-lesson best-WPM dict (load/get/update/serialize). Covered by 10 tests in `test_best_wpm.py`.
   - `main_window.py` no longer imports `QColor` or `QTextCharFormat` directly.
 
+### Completed (cont.)
+
+- ✅ **`on_text_changed` debounce** — already throttled via `QTimer.singleShot(0, self._flush_display)` with a `_pending_display_update` guard (`ui/main_window.py:723-725`), so multi-keystroke bursts only repaint once per event-loop cycle.
+- ✅ **`TypingSession.key_attempts`** — now tracked alongside `key_errors` (`core/models.py:21,41-44`) and persisted as `key_attempt_stats` in the store; per-key accuracy % can be derived as `1 - errors[k] / attempts[k]`.
+- ✅ **`ProgressStore` → SQLite** — replaced the single JSON read/write with a SQLite database (`typing_progress.sqlite3`, stdlib-only). Granular writes (one row per setting / session / key) replace the previous full-file rewrite on every `save()`. Legacy `typing_progress.json` is migrated once on first launch and renamed to `.json.migrated` as a backup. Public API is preserved — `.data` mirror still works for read paths in `dialogs.py`.
+
 ### Still to do
 
 - **Aggressive split of `main_window.py`** — extract a `SessionController` owning session lifecycle (reset, completion, `on_text_changed` logic) so the `QMainWindow` becomes thin Qt glue. Risky: `on_text_changed` reads widgets directly, so the controller will need callbacks/signals.
-- **`on_text_changed`** recalculates on every keystroke. Fine today, but if live charts are added, throttle with a `QTimer.singleShot(0, ...)` debounce.
-- **`ProgressStore`** does a full JSON read/write on every `save()`. Fine at current scale; if history grows large, consider SQLite (stdlib, no extra dep).
-- **`TypingSession.record_key_error`** could also track `key_attempts`, enabling **per-key accuracy %** instead of raw error counts (more meaningful for rare keys).
+- **Surface per-key accuracy %** — the underlying `key_attempts` data is now persisted; the statistics dialog still shows raw error counts via the heatmap. Add a per-key accuracy view (more meaningful for rare keys).
 
 ## Quality / polish
 

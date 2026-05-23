@@ -120,6 +120,20 @@ def test_wordgen():
     print(f"  ✓ Code-heavy sample: {code_text}")
 
 
+def _cleanup_store_files(temp_path):
+    """Remove both the legacy JSON path and the SQLite sidecar created by ProgressStore."""
+    candidates = [
+        temp_path,
+        temp_path.with_suffix(".json.migrated"),
+        temp_path.with_suffix(".sqlite3"),
+        temp_path.with_suffix(".sqlite3-shm"),
+        temp_path.with_suffix(".sqlite3-wal"),
+    ]
+    for p in candidates:
+        if p.exists():
+            os.unlink(p)
+
+
 def test_developer_settings_persistence():
     """Test developer settings round-trip through the progress store."""
     from core.constants import DEFAULT_DEVELOPER_KEYS_LENGTH, DEFAULT_DEVELOPER_KEYS_MODE
@@ -140,6 +154,7 @@ def test_developer_settings_persistence():
         store.set_setting("developer_keys_length", 18)
         store.set_setting("developer_keys_mode", "code-snippet-heavy")
         store.set_developer_text(9, "def main return", token_count=18, mode="code-snippet-heavy")
+        store.close()
 
         reloaded = ProgressStore(temp_path)
         assert reloaded.get_setting("developer_keys_length", -1) == 18
@@ -150,12 +165,12 @@ def test_developer_settings_persistence():
         assert cached.get("text") == "def main return"
         assert cached.get("token_count") == 18
         assert cached.get("mode") == "code-snippet-heavy"
+        reloaded.close()
 
         print("  ✓ Developer settings persist correctly")
         print("  ✓ Cached developer drills persist with metadata")
     finally:
-        if temp_path.exists():
-            os.unlink(temp_path)
+        _cleanup_store_files(temp_path)
 
 
 def test_settings_dialog_developer_controls():
@@ -182,9 +197,9 @@ def test_settings_dialog_developer_controls():
 
         print("  ✓ Settings dialog exposes Developer Keys controls")
         print("  ✓ Controls reflect saved values")
+        store.close()
     finally:
-        if temp_path.exists():
-            os.unlink(temp_path)
+        _cleanup_store_files(temp_path)
 
 
 def test_heatmap():
@@ -249,11 +264,10 @@ def test_persistence():
         
         print("  ✓ Key error tracking works")
         print("  ✓ Accumulation across sessions works")
-        
+        store.close()
+
     finally:
-        # Cleanup
-        if temp_path.exists():
-            os.unlink(temp_path)
+        _cleanup_store_files(temp_path)
 
 
 def test_models():

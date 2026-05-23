@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -16,134 +17,414 @@ from core.constants import (
     DEFAULT_DEVELOPER_KEYS_MODE,
 )
 
+
+_DEFAULT_SETTINGS: Dict[str, object] = {
+    "backspace_penalty": DEFAULT_BACKSPACE_PENALTY,
+    "backspace_accuracy_weight": DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
+    "strict_mode": DEFAULT_STRICT_MODE,
+    "dark_mode": DEFAULT_DARK_MODE,
+    "show_keyboard": DEFAULT_SHOW_KEYBOARD,
+    "show_celebration": DEFAULT_SHOW_CELEBRATION,
+    "font_size": DEFAULT_FONT_SIZE,
+    "random_word_count": DEFAULT_RANDOM_WORD_COUNT,
+    "developer_keys_length": DEFAULT_DEVELOPER_KEYS_LENGTH,
+    "developer_keys_mode": DEFAULT_DEVELOPER_KEYS_MODE,
+}
+
+
 class ProgressStore:
-    """Handles persistence of user progress and settings to JSON."""
-    
-    MAX_HISTORY_SIZE = 100  # Limit session history to prevent file bloat
+    """SQLite-backed persistence for user progress and settings.
+
+    Granular writes (one row per setting / session / key) replace the previous
+    full-file JSON rewrite on every save. The `data` attribute mirrors the
+    persisted state in memory so existing read-paths that touch `.data`
+    directly continue to work.
+    """
+
+    MAX_HISTORY_SIZE = 100
 
     def __init__(self, path: Path):
+        # Keep `path` pointing at the legacy JSON file for one-shot migration,
+        # and derive the SQLite filename from it.
         self.path = path
-        self.data: Dict[str, object] = {
+        self.db_path = path.with_suffix(".sqlite3")
+        self.data: Dict[str, object] = self._empty_state()
+        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._create_schema()
+        self._migrate_from_json_if_needed()
+        self._refresh_cache()
+
+    @staticmethod
+    def _empty_state() -> Dict[str, object]:
+        return {
             "current_lesson_index": 0,
             "current_text_index": 0,
             "best_wpm": {},
             "session_history": [],
-            "random_texts": {},  # Store generated random texts by lesson index
-            "developer_texts": {},  # Store generated developer drills by lesson index
-            "key_error_stats": {},  # Global statistics for key errors
-            "key_attempt_stats": {},  # Global statistics for key attempts (correct + incorrect)
-            "settings": {
-                "backspace_penalty": DEFAULT_BACKSPACE_PENALTY,
-                "backspace_accuracy_weight": DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
-                "strict_mode": DEFAULT_STRICT_MODE,
-                "dark_mode": DEFAULT_DARK_MODE,
-                "show_keyboard": DEFAULT_SHOW_KEYBOARD,
-                "show_celebration": DEFAULT_SHOW_CELEBRATION,
-                "font_size": DEFAULT_FONT_SIZE,
-                "random_word_count": DEFAULT_RANDOM_WORD_COUNT,
-                "developer_keys_length": DEFAULT_DEVELOPER_KEYS_LENGTH,
-                "developer_keys_mode": DEFAULT_DEVELOPER_KEYS_MODE,
-            },
+            "random_texts": {},
+            "developer_texts": {},
+            "key_error_stats": {},
+            "key_attempt_stats": {},
+            "settings": dict(_DEFAULT_SETTINGS),
         }
-        self.load()
 
-    def load(self) -> Dict[str, object]:
-        if self.path.exists():
-            try:
-                content = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(content, dict):
-                    # Merge loaded data with defaults to ensure all fields exist
-                    for key, value in content.items():
-                        if key == "settings" and isinstance(value, dict):
-                            settings = self.data.get("settings")
-                            if isinstance(settings, dict):
-                                settings.update(value)
-                            else:
-                                self.data["settings"] = dict(value)
-                        else:
-                            self.data[key] = value
-            except (OSError, json.JSONDecodeError):
-                pass
-        return self.data
+    def _create_schema(self) -> None:
+        c = self._conn
+        c.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS kv (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS best_wpm (
+                lesson_key TEXT PRIMARY KEY,
+                wpm INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS session_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                lesson_index INTEGER NOT NULL,
+                text_index INTEGER NOT NULL,
+                lesson_name TEXT NOT NULL,
+                wpm INTEGER NOT NULL,
+                accuracy REAL NOT NULL,
+                errors INTEGER NOT NULL,
+                backspaces INTEGER NOT NULL,
+                duration_seconds REAL NOT NULL,
+                text_length INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS random_texts (
+                lesson_key TEXT PRIMARY KEY,
+                text TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS developer_texts (
+                lesson_key TEXT PRIMARY KEY,
+                text TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                mode TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS key_error_stats (
+                key TEXT PRIMARY KEY,
+                count INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS key_attempt_stats (
+                key TEXT PRIMARY KEY,
+                count INTEGER NOT NULL
+            );
+            """
+        )
+        c.commit()
 
-    def save(self) -> None:
+    def _migrate_from_json_if_needed(self) -> None:
+        """One-shot import of the legacy JSON file, then rename it aside."""
+        if not self.path.exists():
+            return
+        cur = self._conn.execute("SELECT 1 FROM kv LIMIT 1")
+        if cur.fetchone() is not None:
+            return
+        cur = self._conn.execute("SELECT 1 FROM settings LIMIT 1")
+        if cur.fetchone() is not None:
+            return
+
         try:
-            self.path.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+            content = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(content, dict):
+            return
+
+        with self._conn:
+            for key in ("current_lesson_index", "current_text_index"):
+                if key in content:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                        (key, json.dumps(content[key])),
+                    )
+            settings = content.get("settings")
+            if isinstance(settings, dict):
+                for key, value in settings.items():
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        (key, json.dumps(value)),
+                    )
+            best_wpm = content.get("best_wpm")
+            if isinstance(best_wpm, dict):
+                for lesson_key, wpm in best_wpm.items():
+                    if isinstance(wpm, (int, float)):
+                        self._conn.execute(
+                            "INSERT OR REPLACE INTO best_wpm (lesson_key, wpm) VALUES (?, ?)",
+                            (str(lesson_key), int(wpm)),
+                        )
+            history = content.get("session_history")
+            if isinstance(history, list):
+                for entry in history[-self.MAX_HISTORY_SIZE:]:
+                    if not isinstance(entry, dict):
+                        continue
+                    self._conn.execute(
+                        """INSERT INTO session_history
+                           (timestamp, lesson_index, text_index, lesson_name,
+                            wpm, accuracy, errors, backspaces, duration_seconds, text_length)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(entry.get("timestamp", "")),
+                            int(entry.get("lesson_index", 0) or 0),
+                            int(entry.get("text_index", 0) or 0),
+                            str(entry.get("lesson_name", "")),
+                            int(entry.get("wpm", 0) or 0),
+                            float(entry.get("accuracy", 0.0) or 0.0),
+                            int(entry.get("errors", 0) or 0),
+                            int(entry.get("backspaces", 0) or 0),
+                            float(entry.get("duration_seconds", 0.0) or 0.0),
+                            int(entry.get("text_length", 0) or 0),
+                        ),
+                    )
+            random_texts = content.get("random_texts")
+            if isinstance(random_texts, dict):
+                for lesson_key, text in random_texts.items():
+                    if isinstance(text, str):
+                        self._conn.execute(
+                            "INSERT OR REPLACE INTO random_texts (lesson_key, text) VALUES (?, ?)",
+                            (str(lesson_key), text),
+                        )
+            developer_texts = content.get("developer_texts")
+            if isinstance(developer_texts, dict):
+                for lesson_key, entry in developer_texts.items():
+                    if not isinstance(entry, dict):
+                        continue
+                    text = entry.get("text")
+                    if not isinstance(text, str):
+                        continue
+                    self._conn.execute(
+                        """INSERT OR REPLACE INTO developer_texts
+                           (lesson_key, text, token_count, mode) VALUES (?, ?, ?, ?)""",
+                        (
+                            str(lesson_key),
+                            text,
+                            int(entry.get("token_count", 0) or 0),
+                            str(entry.get("mode", "")),
+                        ),
+                    )
+            for table, source_key in (
+                ("key_error_stats", "key_error_stats"),
+                ("key_attempt_stats", "key_attempt_stats"),
+            ):
+                stats = content.get(source_key)
+                if isinstance(stats, dict):
+                    for key, count in stats.items():
+                        if isinstance(count, (int, float)):
+                            self._conn.execute(
+                                f"INSERT OR REPLACE INTO {table} (key, count) VALUES (?, ?)",
+                                (str(key), int(count)),
+                            )
+
+        try:
+            self.path.rename(self.path.with_suffix(".json.migrated"))
         except OSError:
             pass
 
+    def _refresh_cache(self) -> None:
+        """Repopulate the `data` mirror from SQLite."""
+        state = self._empty_state()
+
+        for row in self._conn.execute("SELECT key, value FROM kv"):
+            try:
+                state[row[0]] = json.loads(row[1])
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        for row in self._conn.execute("SELECT key, value FROM settings"):
+            try:
+                state["settings"][row[0]] = json.loads(row[1])
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        state["best_wpm"] = {
+            row[0]: row[1]
+            for row in self._conn.execute("SELECT lesson_key, wpm FROM best_wpm")
+        }
+
+        state["session_history"] = [
+            {
+                "timestamp": row[0],
+                "lesson_index": row[1],
+                "text_index": row[2],
+                "lesson_name": row[3],
+                "wpm": row[4],
+                "accuracy": row[5],
+                "errors": row[6],
+                "backspaces": row[7],
+                "duration_seconds": row[8],
+                "text_length": row[9],
+            }
+            for row in self._conn.execute(
+                """SELECT timestamp, lesson_index, text_index, lesson_name,
+                          wpm, accuracy, errors, backspaces, duration_seconds, text_length
+                   FROM session_history ORDER BY id ASC"""
+            )
+        ]
+
+        state["random_texts"] = {
+            row[0]: row[1]
+            for row in self._conn.execute("SELECT lesson_key, text FROM random_texts")
+        }
+
+        state["developer_texts"] = {
+            row[0]: {"text": row[1], "token_count": row[2], "mode": row[3]}
+            for row in self._conn.execute(
+                "SELECT lesson_key, text, token_count, mode FROM developer_texts"
+            )
+        }
+
+        state["key_error_stats"] = {
+            row[0]: row[1]
+            for row in self._conn.execute("SELECT key, count FROM key_error_stats")
+        }
+
+        state["key_attempt_stats"] = {
+            row[0]: row[1]
+            for row in self._conn.execute("SELECT key, count FROM key_attempt_stats")
+        }
+
+        self.data = state
+
+    def load(self) -> Dict[str, object]:
+        """Reload the in-memory cache from disk and return it."""
+        self._refresh_cache()
+        return self.data
+
+    def save(self) -> None:
+        """Flush the in-memory mirror back to SQLite.
+
+        Granular setters already persist each change directly, so this only
+        needs to sync the two top-level position keys plus the best-WPM map
+        that callers may have mutated through `.data`.
+        """
+        with self._conn:
+            for key in ("current_lesson_index", "current_text_index"):
+                if key in self.data:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                        (key, json.dumps(self.data[key])),
+                    )
+            best_wpm = self.data.get("best_wpm")
+            if isinstance(best_wpm, dict):
+                self._conn.execute("DELETE FROM best_wpm")
+                for lesson_key, wpm in best_wpm.items():
+                    if isinstance(wpm, (int, float)):
+                        self._conn.execute(
+                            "INSERT OR REPLACE INTO best_wpm (lesson_key, wpm) VALUES (?, ?)",
+                            (str(lesson_key), int(wpm)),
+                        )
+
     def add_session_record(self, record: SessionRecord) -> None:
-        """Add a completed session to history, maintaining size limit."""
-        history = self.data.get("session_history", [])
+        """Append a completed session, trimming history to the size limit."""
+        with self._conn:
+            self._conn.execute(
+                """INSERT INTO session_history
+                   (timestamp, lesson_index, text_index, lesson_name,
+                    wpm, accuracy, errors, backspaces, duration_seconds, text_length)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record.timestamp,
+                    record.lesson_index,
+                    record.text_index,
+                    record.lesson_name,
+                    record.wpm,
+                    record.accuracy,
+                    record.errors,
+                    record.backspaces,
+                    record.duration_seconds,
+                    record.text_length,
+                ),
+            )
+            self._conn.execute(
+                """DELETE FROM session_history
+                   WHERE id IN (
+                     SELECT id FROM session_history
+                     ORDER BY id DESC LIMIT -1 OFFSET ?
+                   )""",
+                (self.MAX_HISTORY_SIZE,),
+            )
+
+        history = self.data.get("session_history")
         if not isinstance(history, list):
             history = []
-        
-        history.append({
-            "timestamp": record.timestamp,
-            "lesson_index": record.lesson_index,
-            "text_index": record.text_index,
-            "lesson_name": record.lesson_name,
-            "wpm": record.wpm,
-            "accuracy": record.accuracy,
-            "errors": record.errors,
-            "backspaces": record.backspaces,
-            "duration_seconds": record.duration_seconds,
-            "text_length": record.text_length,
-        })
-        
-        # Trim to max size
+        history.append(
+            {
+                "timestamp": record.timestamp,
+                "lesson_index": record.lesson_index,
+                "text_index": record.text_index,
+                "lesson_name": record.lesson_name,
+                "wpm": record.wpm,
+                "accuracy": record.accuracy,
+                "errors": record.errors,
+                "backspaces": record.backspaces,
+                "duration_seconds": record.duration_seconds,
+                "text_length": record.text_length,
+            }
+        )
         if len(history) > self.MAX_HISTORY_SIZE:
             history = history[-self.MAX_HISTORY_SIZE:]
-        
         self.data["session_history"] = history
 
     def get_session_history(self) -> List[Dict]:
-        """Return the session history list."""
         history = self.data.get("session_history", [])
         return history if isinstance(history, list) else []
 
     def get_setting(self, key: str, default=None):
-        """Get a setting value with fallback to default."""
         settings = self.data.get("settings", {})
         if isinstance(settings, dict):
             return settings.get(key, default)
         return default
 
     def set_setting(self, key: str, value) -> None:
-        """Set a setting value and save."""
         settings = self.data.get("settings")
         if not isinstance(settings, dict):
             settings = {}
             self.data["settings"] = settings
         settings[key] = value
-        self.save()
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, json.dumps(value)),
+            )
 
     def get_random_text(self, lesson_index: int) -> Optional[str]:
-        """Get the stored random text for a lesson, if any."""
         random_texts = self.data.get("random_texts", {})
         if isinstance(random_texts, dict):
             return random_texts.get(str(lesson_index))
         return None
 
     def set_random_text(self, lesson_index: int, text: str) -> None:
-        """Store a generated random text for a lesson."""
         random_texts = self.data.get("random_texts")
         if not isinstance(random_texts, dict):
             random_texts = {}
             self.data["random_texts"] = random_texts
         random_texts[str(lesson_index)] = text
-        self.save()
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO random_texts (lesson_key, text) VALUES (?, ?)",
+                (str(lesson_index), text),
+            )
 
     def clear_random_text(self, lesson_index: int) -> None:
-        """Clear the stored random text for a lesson to force regeneration."""
         random_texts = self.data.get("random_texts", {})
         if isinstance(random_texts, dict) and str(lesson_index) in random_texts:
             del random_texts[str(lesson_index)]
             self.data["random_texts"] = random_texts
-            self.save()
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM random_texts WHERE lesson_key = ?",
+                (str(lesson_index),),
+            )
 
     def get_developer_text(self, lesson_index: int) -> Optional[Dict[str, object]]:
-        """Get the stored developer drill and its generation settings, if any."""
         developer_texts = self.data.get("developer_texts", {})
         if isinstance(developer_texts, dict):
             value = developer_texts.get(str(lesson_index))
@@ -151,7 +432,6 @@ class ProgressStore:
         return None
 
     def set_developer_text(self, lesson_index: int, text: str, *, token_count: int, mode: str) -> None:
-        """Store a generated developer drill for a lesson."""
         developer_texts = self.data.get("developer_texts")
         if not isinstance(developer_texts, dict):
             developer_texts = {}
@@ -161,41 +441,57 @@ class ProgressStore:
             "token_count": token_count,
             "mode": mode,
         }
-        self.save()
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO developer_texts
+                   (lesson_key, text, token_count, mode) VALUES (?, ?, ?, ?)""",
+                (str(lesson_index), text, token_count, mode),
+            )
 
     def clear_developer_text(self, lesson_index: int) -> None:
-        """Clear the stored developer drill for a lesson to force regeneration."""
         developer_texts = self.data.get("developer_texts", {})
         if isinstance(developer_texts, dict) and str(lesson_index) in developer_texts:
             del developer_texts[str(lesson_index)]
             self.data["developer_texts"] = developer_texts
-            self.save()
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM developer_texts WHERE lesson_key = ?",
+                (str(lesson_index),),
+            )
 
     def update_key_error_stats(self, key_errors: Dict[str, int]) -> None:
-        """Update global key error statistics with session data."""
-        stats = self.data.get("key_error_stats")
-        if not isinstance(stats, dict):
-            stats = {}
-            self.data["key_error_stats"] = stats
+        self._upsert_key_counts("key_error_stats", key_errors)
 
-        for key, count in key_errors.items():
-            stats[key] = stats.get(key, 0) + count
-    
     def get_key_error_stats(self) -> Dict[str, int]:
-        """Get global key error statistics."""
         stats = self.data.get("key_error_stats", {})
         return stats if isinstance(stats, dict) else {}
 
     def update_key_attempt_stats(self, key_attempts: Dict[str, int]) -> None:
-        """Update global key attempt statistics with session data."""
-        stats = self.data.get("key_attempt_stats")
-        if not isinstance(stats, dict):
-            stats = {}
-            self.data["key_attempt_stats"] = stats
-        for key, count in key_attempts.items():
-            stats[key] = stats.get(key, 0) + count
+        self._upsert_key_counts("key_attempt_stats", key_attempts)
 
     def get_key_attempt_stats(self) -> Dict[str, int]:
-        """Get global key attempt statistics."""
         stats = self.data.get("key_attempt_stats", {})
         return stats if isinstance(stats, dict) else {}
+
+    def _upsert_key_counts(self, table: str, counts: Dict[str, int]) -> None:
+        stats = self.data.get(table)
+        if not isinstance(stats, dict):
+            stats = {}
+            self.data[table] = stats
+        with self._conn:
+            for key, count in counts.items():
+                new_total = stats.get(key, 0) + count
+                stats[key] = new_total
+                self._conn.execute(
+                    f"INSERT OR REPLACE INTO {table} (key, count) VALUES (?, ?)",
+                    (str(key), int(new_total)),
+                )
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except sqlite3.Error:
+            pass
+
+    def __del__(self) -> None:
+        self.close()
