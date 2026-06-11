@@ -30,6 +30,7 @@ from core.themes import get_theme_names, get_theme
 from core.charts import (
     create_combined_progress_chart,
     create_lesson_performance_chart,
+    create_error_timeseries_chart,
 )
 from core.heatmap import (
     create_keyboard_heatmap,
@@ -86,6 +87,10 @@ class StatisticsDialog(QDialog):
         # Heatmap tab
         heatmap_tab = self._create_heatmap_tab()
         tabs.addTab(heatmap_tab, "🔥 Error Heatmap")
+
+        # Error trends tab
+        trends_tab = self._create_trends_tab()
+        tabs.addTab(trends_tab, "📉 Error Trends")
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -344,76 +349,152 @@ class StatisticsDialog(QDialog):
         return widget
 
     def _create_heatmap_tab(self) -> QWidget:
-        """Create the error heatmap tab showing problem keys."""
+        """Create the error heatmap tab showing problem keys, filterable by lesson."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        key_error_stats = self.progress_store.get_key_error_stats()
+        global_stats = self.progress_store.get_key_error_stats()
 
-        if not key_error_stats:
+        if not global_stats:
             empty_label = QLabel("No error data yet. Complete some typing exercises to see your problem keys!")
             empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
 
-        # Get current theme
+        # Lesson filter — "All Lessons" shows the cumulative global stats,
+        # each entry shows a single lesson's per-session error totals.
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Show errors for:"))
+        self._heatmap_lesson_combo = QComboBox()
+        self._heatmap_lesson_combo.addItem("All Lessons", userData=None)
+        for entry in self.progress_store.get_lessons_with_error_data():
+            self._heatmap_lesson_combo.addItem(
+                entry["lesson_name"], userData=entry["lesson_index"]
+            )
+        self._heatmap_lesson_combo.currentIndexChanged.connect(self._on_heatmap_lesson_changed)
+        filter_layout.addWidget(self._heatmap_lesson_combo, stretch=1)
+        layout.addLayout(filter_layout)
+
+        # Container whose contents are rebuilt when the lesson filter changes.
+        self._heatmap_content = QWidget()
+        self._heatmap_content_layout = QVBoxLayout(self._heatmap_content)
+        self._heatmap_content_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._heatmap_content)
+
+        self._render_heatmap_content(global_stats)
+        return widget
+
+    def _on_heatmap_lesson_changed(self, index: int) -> None:
+        """Re-render the heatmap content for the selected lesson (or all)."""
+        lesson_index = self._heatmap_lesson_combo.itemData(index)
+        if lesson_index is None:
+            stats = self.progress_store.get_key_error_stats()
+        else:
+            stats = self.progress_store.get_lesson_key_errors(lesson_index)
+        self._render_heatmap_content(stats)
+
+    def _render_heatmap_content(self, key_error_stats: dict) -> None:
+        """Populate the heatmap container with charts for the given stats."""
+        # Clear any previously rendered content.
+        while self._heatmap_content_layout.count():
+            item = self._heatmap_content_layout.takeAt(0)
+            child = item.widget()
+            if child is not None:
+                child.deleteLater()
+
+        layout = self._heatmap_content_layout
+
+        if not key_error_stats:
+            empty_label = QLabel("No error data for this lesson yet.")
+            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty_label)
+            return
+
         theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
         theme = get_theme(theme_name)
 
         # Keyboard heatmap
         heatmap_group = QGroupBox("⌨️ Keyboard Error Heatmap")
         heatmap_layout = QVBoxLayout(heatmap_group)
-        
+
         heatmap_label = QLabel()
         heatmap_pixmap = create_keyboard_heatmap(key_error_stats, theme)
         if not heatmap_pixmap.isNull():
             heatmap_label.setPixmap(heatmap_pixmap)
-            heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         else:
             heatmap_label.setText("No data available")
-            heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+        heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heatmap_layout.addWidget(heatmap_label)
         layout.addWidget(heatmap_group)
 
         # Finger error chart
         finger_group = QGroupBox("👆 Errors by Finger")
         finger_layout = QVBoxLayout(finger_group)
-        
+
         finger_chart_label = QLabel()
         finger_pixmap = create_finger_error_chart(key_error_stats, theme)
         if not finger_pixmap.isNull():
             finger_chart_label.setPixmap(finger_pixmap)
-            finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         else:
             finger_chart_label.setText("No data available")
-            finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+        finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         finger_layout.addWidget(finger_chart_label)
         layout.addWidget(finger_group)
 
         # Top problem keys list
         problem_keys_group = QGroupBox("🎯 Most Problematic Keys")
         problem_keys_layout = QVBoxLayout(problem_keys_group)
-        
-        # Sort keys by error count
+
         sorted_errors = sorted(key_error_stats.items(), key=lambda x: x[1], reverse=True)[:10]
-        
+
         problem_text = QTextEdit()
         problem_text.setReadOnly(True)
         problem_text.setMaximumHeight(120)
         problem_text.setFont(QFont("Courier New", 11))
-        
+
         lines = ["Rank | Key    | Errors"]
         lines.append("-" * 25)
         for i, (key, count) in enumerate(sorted_errors, 1):
             key_display = key.upper() if key != ' ' else 'SPACE'
             lines.append(f" {i:2d}  | {key_display:6s} | {count:4d}")
-        
+
         problem_text.setText("\n".join(lines))
         problem_keys_layout.addWidget(problem_text)
         layout.addWidget(problem_keys_group)
+
+        layout.addStretch()
+
+    def _create_trends_tab(self) -> QWidget:
+        """Create the error-trends tab showing errors per session over time."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        timeseries = self.progress_store.get_error_timeseries()
+
+        if not timeseries:
+            empty_label = QLabel("No error trend data yet. Complete some typing exercises to track your progress!")
+            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty_label)
+            return widget
+
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
+        trends_group = QGroupBox("📉 Errors Over Time")
+        trends_layout = QVBoxLayout(trends_group)
+
+        trends_label = QLabel()
+        trends_pixmap = create_error_timeseries_chart(timeseries, theme)
+        if not trends_pixmap.isNull():
+            trends_label.setPixmap(trends_pixmap)
+        else:
+            trends_label.setText("No data available")
+        trends_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        trends_layout.addWidget(trends_label)
+        layout.addWidget(trends_group)
 
         layout.addStretch()
         return widget

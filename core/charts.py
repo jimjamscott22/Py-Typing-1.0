@@ -167,6 +167,44 @@ def create_combined_progress_chart(session_history: List[Dict], theme: Theme, ma
     return pixmap
 
 
+def create_error_timeseries_chart(timeseries: List[Dict], theme: Theme, max_sessions: int = 30) -> QPixmap:
+    """Create a chart showing total typing errors per session over time."""
+    if not timeseries:
+        return QPixmap()
+
+    recent = timeseries[-max_sessions:]
+    session_nums = list(range(1, len(recent) + 1))
+    errors = [s.get("errors", 0) for s in recent]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    fig.patch.set_facecolor(theme.chart_bg)
+    ax.set_facecolor(theme.chart_bg)
+
+    # Bars for per-session error totals
+    ax.bar(session_nums, errors, color=theme.error_bg, alpha=0.75,
+           edgecolor=theme.chart_grid, linewidth=1)
+
+    # Overlay a trend line to make the direction obvious
+    ax.plot(session_nums, errors, marker='o', linewidth=2,
+            color=theme.chart_primary, markersize=4)
+
+    ax.set_xlabel('Session Number', color=theme.chart_text, fontsize=10)
+    ax.set_ylabel('Errors', color=theme.chart_text, fontsize=10)
+    ax.set_title(f'Errors Over Time (Last {len(recent)} Sessions)',
+                 color=theme.chart_text, fontsize=12, fontweight='bold')
+    ax.grid(True, axis='y', alpha=0.3, color=theme.chart_grid)
+    ax.tick_params(colors=theme.chart_text)
+
+    for spine in ax.spines.values():
+        spine.set_edgecolor(theme.chart_grid)
+
+    plt.tight_layout()
+    pixmap = create_chart_pixmap(fig)
+    plt.close(fig)
+
+    return pixmap
+
+
 def create_lesson_performance_chart(session_history: List[Dict], theme: Theme) -> QPixmap:
     """Create a bar chart showing average WPM by lesson."""
     if not session_history:

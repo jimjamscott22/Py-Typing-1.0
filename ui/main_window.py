@@ -60,6 +60,7 @@ class TypingPracticeApp(QMainWindow):
         self.mode = "lesson"
         self._previous_typed_length = 0  # Track for backspace detection
         self._pending_display_update = False  # Guard for deferred display refresh
+        self._round_complete = False  # True after a round finishes; Space advances to the next
         self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
 
         # Initialize the celebration sound manager with this window as parent
@@ -377,6 +378,7 @@ class TypingPracticeApp(QMainWindow):
             "background-color: #4CAF50; color: white; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 5px;"
         )
         self.next_button.clicked.connect(self.next_text)
+        self.next_button.setToolTip("Press Space or Enter to continue after finishing a round")
         button_layout.addWidget(self.next_button)
 
         # Regenerate button for Random Words (initially hidden)
@@ -460,6 +462,14 @@ class TypingPracticeApp(QMainWindow):
         """Intercept key events to track backspace usage and enforce strict mode."""
         if obj == self.typing_input and event.type() == QEvent.Type.KeyPress:
             key_event = event
+            # Once a round is complete, Space/Enter jumps to the next challenge.
+            if self._round_complete and key_event.key() in (
+                Qt.Key.Key_Space,
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+            ):
+                self._advance_to_next()
+                return True  # Consume so no stray character is typed
             if key_event.key() == Qt.Key.Key_Backspace:
                 strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
                 
@@ -699,6 +709,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.session.reset()
         self._previous_typed_length = 0
+        self._round_complete = False
         self._update_backspace_label()
 
         if self.mode == "lesson":
@@ -909,6 +920,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.typing_input.setReadOnly(True)
         self.keyboard_widget.clear_highlights()
+        self._round_complete = True
 
         # Build completion message with backspace info
         backspace_count = self.session.backspace_count
@@ -924,6 +936,8 @@ class TypingPracticeApp(QMainWindow):
         )
         if backspace_count > 0:
             completion_msg += f" (penalty: -{wpm_penalty} WPM)"
+
+        completion_msg += "\n\nPress Space to continue ➡️"
 
         self._update_description(completion_msg, mode="success")
 
@@ -952,6 +966,16 @@ class TypingPracticeApp(QMainWindow):
         if self.session.key_attempts:
             self.progress_store.update_key_attempt_stats(self.session.key_attempts)
 
+        # Log per-session key errors for per-lesson heatmaps and error trends
+        if self.session.key_errors:
+            self.progress_store.add_session_key_stats(
+                record.timestamp,
+                record.lesson_index,
+                lesson_name,
+                self.session.key_errors,
+                self.session.key_attempts,
+            )
+
         if self.mode == "lesson":
             self._record_best_wpm(wpm)
 
@@ -973,6 +997,18 @@ class TypingPracticeApp(QMainWindow):
     def _unlock_text_input(self) -> None:
         self.typing_input.setReadOnly(False)
         self.typing_input.setFocus()
+
+    def _advance_to_next(self) -> None:
+        """Move on from a completed round, triggered by the Space/Enter shortcut."""
+        if not self._round_complete:
+            return
+        # Consume the flag immediately so a second keypress can't double-advance.
+        self._round_complete = False
+        if self.mode == "lesson":
+            self.next_text()
+        else:
+            # Free practice has no "next" passage, so re-run the current one.
+            self.reset_exercise()
 
     def next_text(self) -> None:
         """Move to the next text or lesson, or congratulate the user."""

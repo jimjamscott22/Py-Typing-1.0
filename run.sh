@@ -4,12 +4,16 @@
 # Ensure we are in the directory containing the script
 cd "$(dirname "$0")"
 
-# Check if uv is installed
-if ! command -v uv >/dev/null 2>&1; then
-    echo "Error: uv is not installed. Please install it first."
-    echo "Visit: https://docs.astral.sh/uv/getting-started/installation/"
+# Desktop launchers have a minimal PATH; resolve uv explicitly
+UV_BIN="${HOME}/.local/bin/uv"
+if [ ! -x "$UV_BIN" ]; then
+    UV_BIN="$(command -v uv 2>/dev/null)"
+fi
+
+if [ -z "$UV_BIN" ]; then
+    zenity --error --text="uv is not installed. Visit https://docs.astral.sh/uv/getting-started/installation/" 2>/dev/null \
+        || echo "Error: uv is not installed." >&2
     exit 1
 fi
 
-echo "Launching Py-Typing-1.0..."
-uv run main.py
+"$UV_BIN" run main.py

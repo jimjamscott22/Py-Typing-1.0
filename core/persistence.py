@@ -117,6 +117,19 @@ class ProgressStore:
                 key TEXT PRIMARY KEY,
                 count INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS session_key_errors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_timestamp TEXT NOT NULL,
+                lesson_index INTEGER NOT NULL,
+                lesson_name TEXT NOT NULL,
+                key TEXT NOT NULL,
+                error_count INTEGER NOT NULL,
+                attempt_count INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_key_errors_lesson
+                ON session_key_errors (lesson_index);
+            CREATE INDEX IF NOT EXISTS idx_session_key_errors_timestamp
+                ON session_key_errors (session_timestamp);
             """
         )
         c.commit()
@@ -486,6 +499,86 @@ class ProgressStore:
                     f"INSERT OR REPLACE INTO {table} (key, count) VALUES (?, ?)",
                     (str(key), int(new_total)),
                 )
+
+    def add_session_key_stats(
+        self,
+        timestamp: str,
+        lesson_index: int,
+        lesson_name: str,
+        key_errors: Dict[str, int],
+        key_attempts: Dict[str, int],
+    ) -> None:
+        """Log per-session, per-key error counts for one completed session.
+
+        Only keys that produced at least one error are stored (with their
+        attempt count for the same session), keeping the table compact. After
+        inserting, the table is trimmed to the same retention window as
+        `session_history` so it cannot grow unbounded.
+        """
+        if not key_errors:
+            return
+        with self._conn:
+            for key, error_count in key_errors.items():
+                if error_count <= 0:
+                    continue
+                self._conn.execute(
+                    """INSERT INTO session_key_errors
+                       (session_timestamp, lesson_index, lesson_name,
+                        key, error_count, attempt_count)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(timestamp),
+                        int(lesson_index),
+                        str(lesson_name),
+                        str(key),
+                        int(error_count),
+                        int(key_attempts.get(key, 0)),
+                    ),
+                )
+            self._conn.execute(
+                """DELETE FROM session_key_errors
+                   WHERE session_timestamp NOT IN (
+                     SELECT session_timestamp FROM (
+                       SELECT DISTINCT session_timestamp FROM session_key_errors
+                       ORDER BY session_timestamp DESC LIMIT ?
+                     )
+                   )""",
+                (self.MAX_HISTORY_SIZE,),
+            )
+
+    def get_lesson_key_errors(self, lesson_index: int) -> Dict[str, int]:
+        """Aggregate per-key error counts for a single lesson."""
+        return {
+            row[0]: row[1]
+            for row in self._conn.execute(
+                """SELECT key, SUM(error_count) FROM session_key_errors
+                   WHERE lesson_index = ? GROUP BY key""",
+                (int(lesson_index),),
+            )
+        }
+
+    def get_lessons_with_error_data(self) -> List[Dict[str, object]]:
+        """Return lessons that have logged per-session error data, newest first."""
+        return [
+            {"lesson_index": row[0], "lesson_name": row[1]}
+            for row in self._conn.execute(
+                """SELECT lesson_index, lesson_name, MAX(session_timestamp) AS last_seen
+                   FROM session_key_errors
+                   GROUP BY lesson_index, lesson_name
+                   ORDER BY last_seen DESC"""
+            )
+        ]
+
+    def get_error_timeseries(self) -> List[Dict[str, object]]:
+        """Return total errors per session over time, oldest first."""
+        return [
+            {"timestamp": row[0], "errors": row[1]}
+            for row in self._conn.execute(
+                """SELECT session_timestamp, SUM(error_count) FROM session_key_errors
+                   GROUP BY session_timestamp
+                   ORDER BY session_timestamp ASC"""
+            )
+        ]
 
     def close(self) -> None:
         try:
