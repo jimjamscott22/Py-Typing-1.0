@@ -470,6 +470,9 @@ class TypingPracticeApp(QMainWindow):
             ):
                 self._advance_to_next()
                 return True  # Consume so no stray character is typed
+            if key_event.key() == Qt.Key.Key_Space and self._cursor_is_at_target_end():
+                self._advance_from_finished_line()
+                return True  # Consume so no extra space is typed
             if key_event.key() == Qt.Key.Key_Backspace:
                 strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
                 
@@ -998,17 +1001,32 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.setReadOnly(False)
         self.typing_input.setFocus()
 
+    def _cursor_is_at_target_end(self) -> bool:
+        """Return True when the input cursor has reached the target text length."""
+        if not self.current_target_text:
+            return False
+        if self._round_complete:
+            return False
+
+        cursor_position = self.typing_input.textCursor().position()
+        typed_length = len(self.typing_input.toPlainText())
+        target_length = len(self.current_target_text)
+        return cursor_position >= target_length and typed_length >= target_length
+
+    def _advance_from_finished_line(self) -> None:
+        """Advance after the user has typed to the end, even with mistakes."""
+        if self.mode == "lesson":
+            self.next_text()
+        else:
+            self.reset_exercise()
+
     def _advance_to_next(self) -> None:
         """Move on from a completed round, triggered by the Space/Enter shortcut."""
         if not self._round_complete:
             return
         # Consume the flag immediately so a second keypress can't double-advance.
         self._round_complete = False
-        if self.mode == "lesson":
-            self.next_text()
-        else:
-            # Free practice has no "next" passage, so re-run the current one.
-            self.reset_exercise()
+        self._advance_from_finished_line()
 
     def next_text(self) -> None:
         """Move to the next text or lesson, or congratulate the user."""
