@@ -59,6 +59,7 @@ class TypingPracticeApp(QMainWindow):
         self.lesson_offset = 1
         self.mode = "lesson"
         self._previous_typed_length = 0  # Track for backspace detection
+        self._key_stats_recorded_length = 0  # How much of typed_text has already been counted for key stats
         self._pending_display_update = False  # Guard for deferred display refresh
         self._round_complete = False  # True after a round finishes; Space advances to the next
         self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
@@ -712,6 +713,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.session.reset()
         self._previous_typed_length = 0
+        self._key_stats_recorded_length = 0
         self._round_complete = False
         self._update_backspace_label()
 
@@ -778,6 +780,8 @@ class TypingPracticeApp(QMainWindow):
         target = self.current_target_text
         typed = self.session.typed_text
 
+        self._record_new_key_stats(target, typed)
+
         highlighted_text, mismatches = self._build_target_highlight(target, typed)
         self.session.errors = mismatches
 
@@ -797,6 +801,29 @@ class TypingPracticeApp(QMainWindow):
         self._update_progress_indicators(typed, target)
         self._highlight_input(target, typed)
 
+    def _record_new_key_stats(self, target: str, typed: str) -> None:
+        """Record key attempt/error stats once per newly confirmed character.
+
+        Called on every render tick, so positions already counted must be
+        skipped — otherwise a keystroke re-records every prior character in
+        the typed prefix, inflating the per-key totals quadratically.
+        """
+        confirmed_length = min(len(typed), len(target))
+
+        if confirmed_length < self._key_stats_recorded_length:
+            # Backspaced past previously-counted positions; they'll be
+            # recounted as fresh attempts if retyped.
+            self._key_stats_recorded_length = confirmed_length
+            return
+
+        for index in range(self._key_stats_recorded_length, confirmed_length):
+            expected = target[index]
+            self.session.record_key_attempt(expected)
+            if typed[index] != expected:
+                self.session.record_key_error(expected)
+
+        self._key_stats_recorded_length = confirmed_length
+
     def _build_target_highlight(self, target: str, typed: str) -> Tuple[str, int]:
         html_parts: List[str] = []
         errors = 0
@@ -805,15 +832,12 @@ class TypingPracticeApp(QMainWindow):
             styled_char = self._format_char(char)
             if index < len(typed):
                 typed_char = typed[index]
-                self.session.record_key_attempt(char)
                 if typed_char == char:
                     html_parts.append(
                         f'<span style="color: green; background-color: #c8e6c9;">{styled_char}</span>'
                     )
                 else:
                     errors += 1
-                    # Track the error for this specific key
-                    self.session.record_key_error(char)
                     html_parts.append(
                         '<span style="color: red; background-color: #ffcdd2; text-decoration: underline;">'
                         f"{styled_char}</span>"
