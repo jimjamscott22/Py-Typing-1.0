@@ -47,6 +47,28 @@ Copy the entire `dist/Typing Practice/` directory to your target system and run 
 
 The full directory approach is slightly faster on first launch because all dependencies are already extracted.
 
+## Data Files
+
+PyInstaller only bundles Python source and compiled extensions automatically. You must explicitly declare non-code assets in `typing_practice.spec`:
+
+```python
+a = Analysis(
+    ['main.py'],
+    ...
+    datas=[
+        ('assets/sounds/*.wav', 'assets/sounds'),   # celebration audio
+        # Add any other static assets here
+    ],
+    ...
+)
+```
+
+> **SQLite note**: `typing_progress.sqlite3` is created at runtime next to the executable — it does not need to be bundled. The `sqlite3` stdlib module is always included by PyInstaller automatically.
+
+> **Matplotlib note**: The `matplotlib` Agg backend is display-less and works inside a bundled executable, but PyInstaller may miss its data files. If charts fail to render after bundling, add `('matplotlib', 'matplotlib')` to `datas` or install the `pyinstaller-hooks-contrib` package, which handles this automatically.
+
+---
+
 ## Customization
 
 To customize the build (e.g., change icon, add more data files), edit `typing_practice.spec`:

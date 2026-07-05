@@ -367,6 +367,7 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Charts Sql)
 find_package(SQLite3 REQUIRED)
+find_package(nlohmann_json REQUIRED)   # used by ProgressStore::getSetting/setSetting
 
 add_executable(typing-practice
     src/main.cpp
@@ -377,6 +378,7 @@ add_executable(typing-practice
 )
 target_link_libraries(typing-practice PRIVATE
     Qt6::Widgets Qt6::Multimedia Qt6::Charts Qt6::Sql SQLite::SQLite3
+    nlohmann_json::nlohmann_json
 )
 ```
 

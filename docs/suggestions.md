@@ -33,6 +33,8 @@ A high-level review of the Py-Typing-1.0 codebase with feature and optimization 
 - **Aggressive split of `main_window.py`** — extract a `SessionController` owning session lifecycle (reset, completion, `on_text_changed` logic) so the `QMainWindow` becomes thin Qt glue. Risky: `on_text_changed` reads widgets directly, so the controller will need callbacks/signals.
 - **Surface per-key accuracy %** — the underlying `key_attempts` data is now persisted; the statistics dialog still shows raw error counts via the heatmap. Add a per-key accuracy view (more meaningful for rare keys).
 
+> See [[ENHANCEMENTS_ROADMAP]] for the full feature pipeline (Tier 1–3), including items that have already shipped on top of the completed items above.
+
 ## Quality / polish
 
 - Only one test file for ~3400 LoC. Pure modules (`wordgen`, `lessons`, the WPM/accuracy formula) are easy unit-test wins.
