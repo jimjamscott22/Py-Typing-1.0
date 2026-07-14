@@ -208,6 +208,8 @@ __marimo__/
 
 typing_practice.json
 typing_progress.json
-typing_progress.json
-typing_progress.json
+typing_progress.json.migrated
+typing_progress.sqlite3
+typing_progress.sqlite3-wal
+typing_progress.sqlite3-shm
 *.json

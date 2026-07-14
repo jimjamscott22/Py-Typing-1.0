@@ -12,9 +12,15 @@ from core.constants import KEY_FINGER_MAP
 from core.charts import create_chart_pixmap
 
 
-def create_keyboard_heatmap(key_error_stats: Dict[str, int], theme: Theme) -> QPixmap:
-    """Create a keyboard heatmap showing which keys have the most errors."""
-    if not key_error_stats:
+def create_keyboard_heatmap(
+    key_stats: Dict[str, float],
+    theme: Theme,
+    *,
+    metric_label: str = "Errors",
+    value_suffix: str = "",
+) -> QPixmap:
+    """Create a keyboard heatmap showing which keys have the highest values."""
+    if not key_stats:
         return QPixmap()
     
     # Keyboard layout with positions (x, y, width) for each key
@@ -38,8 +44,8 @@ def create_keyboard_heatmap(key_error_stats: Dict[str, int], theme: Theme) -> QP
         ' ': (4, -0.8, 6),
     }
     
-    # Normalize error counts for coloring
-    max_errors = max(key_error_stats.values()) if key_error_stats else 1
+    # Normalize values for coloring
+    max_value = max(key_stats.values()) if key_stats else 1
     
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -49,16 +55,16 @@ def create_keyboard_heatmap(key_error_stats: Dict[str, int], theme: Theme) -> QP
     # Draw keys
     for key, (x, y, width) in keyboard_layout.items():
         key_lower = key.lower()
-        error_count = key_error_stats.get(key_lower, 0)
+        value = key_stats.get(key_lower, 0)
         
-        # Calculate color intensity based on errors
-        if error_count == 0:
-            # No errors - use theme background
+        # Calculate color intensity based on values
+        if value == 0:
+            # No data - use theme background
             color = theme.keyboard_key_bg
             alpha = 0.3
         else:
-            # Scale from light to dark red based on error count
-            intensity = min(error_count / max(max_errors, 1), 1.0)
+            # Scale from light to dark red based on value
+            intensity = min(value / max(max_value, 1), 1.0)
             # Use red gradient
             color = (1.0, 1.0 - intensity * 0.7, 1.0 - intensity * 0.7)
             alpha = 0.5 + intensity * 0.5
@@ -81,9 +87,13 @@ def create_keyboard_heatmap(key_error_stats: Dict[str, int], theme: Theme) -> QP
                 fontsize=10, fontweight='bold',
                 color=theme.chart_text)
         
-        # Add error count if > 0
-        if error_count > 0:
-            ax.text(x + width * 0.475, y + 0.2, str(error_count),
+        # Add value label if > 0
+        if value > 0:
+            display_value = f"{value:.0f}{value_suffix}" if value_suffix == "%" else (
+                f"{value:.1f}{value_suffix}" if isinstance(value, float) and not value.is_integer()
+                else f"{int(value)}{value_suffix}"
+            )
+            ax.text(x + width * 0.475, y + 0.2, display_value,
                     ha='center', va='center',
                     fontsize=8,
                     color=theme.chart_text,
@@ -99,13 +109,19 @@ def create_keyboard_heatmap(key_error_stats: Dict[str, int], theme: Theme) -> QP
     ax.axis('off')
     
     # Add title
-    total_errors = sum(key_error_stats.values())
-    ax.set_title(f'Keyboard Error Heatmap (Total Errors: {total_errors})',
-                 color=theme.chart_text, fontsize=14, fontweight='bold', pad=20)
+    total_value = sum(key_stats.values())
+    ax.set_title(
+        f'Keyboard {metric_label} Heatmap (Total: {total_value:.1f}{value_suffix})',
+        color=theme.chart_text, fontsize=14, fontweight='bold', pad=20,
+    )
     
     # Add legend
     legend_y = -1.2
-    legend_text = "Color intensity shows error frequency • Numbers show error count"
+    legend_text = f"Color intensity shows {metric_label.lower()} frequency"
+    if value_suffix == "%":
+        legend_text += " • Numbers show error rate %"
+    else:
+        legend_text += " • Numbers show error count"
     ax.text(7, legend_y, legend_text,
             ha='center', va='center',
             fontsize=10,

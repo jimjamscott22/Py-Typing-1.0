@@ -15,6 +15,8 @@ from core.constants import (
     DEFAULT_RANDOM_WORD_COUNT,
     DEFAULT_DEVELOPER_KEYS_LENGTH,
     DEFAULT_DEVELOPER_KEYS_MODE,
+    DEFAULT_TIMED_MODE_SECONDS,
+    DEFAULT_ADAPTIVE_DRILLS,
 )
 
 
@@ -29,6 +31,8 @@ _DEFAULT_SETTINGS: Dict[str, object] = {
     "random_word_count": DEFAULT_RANDOM_WORD_COUNT,
     "developer_keys_length": DEFAULT_DEVELOPER_KEYS_LENGTH,
     "developer_keys_mode": DEFAULT_DEVELOPER_KEYS_MODE,
+    "timed_mode_seconds": DEFAULT_TIMED_MODE_SECONDS,
+    "adaptive_drills": DEFAULT_ADAPTIVE_DRILLS,
 }
 
 
@@ -552,6 +556,17 @@ class ProgressStore:
             row[0]: row[1]
             for row in self._conn.execute(
                 """SELECT key, SUM(error_count) FROM session_key_errors
+                   WHERE lesson_index = ? GROUP BY key""",
+                (int(lesson_index),),
+            )
+        }
+
+    def get_lesson_key_attempts(self, lesson_index: int) -> Dict[str, int]:
+        """Aggregate per-key attempt counts for a single lesson."""
+        return {
+            row[0]: row[1]
+            for row in self._conn.execute(
+                """SELECT key, SUM(attempt_count) FROM session_key_errors
                    WHERE lesson_index = ? GROUP BY key""",
                 (int(lesson_index),),
             )

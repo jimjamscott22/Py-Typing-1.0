@@ -10,6 +10,15 @@ DEFAULT_RANDOM_WORD_COUNT = 25  # Number of random words to generate
 DEFAULT_DEVELOPER_KEYS_LENGTH = 24
 DEFAULT_DEVELOPER_KEYS_MODE = "symbol-heavy"
 DEFAULT_THEME = "Light"  # Default theme name
+DEFAULT_TIMED_MODE_SECONDS = 0  # 0 = disabled; 60/120/300 for timed drills
+DEFAULT_ADAPTIVE_DRILLS = True  # Weight random words toward weak keys
+
+TIMED_MODE_OPTIONS = (
+    ("Off", 0),
+    ("1 minute", 60),
+    ("2 minutes", 120),
+    ("5 minutes", 300),
+)
 
 DEVELOPER_KEYS_MODES = ("symbol-heavy", "code-snippet-heavy")
 

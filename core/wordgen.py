@@ -66,6 +66,36 @@ DEVELOPER_CODE_TOKENS: List[str] = [
 DEVELOPER_TOKENS: List[str] = DEVELOPER_SYMBOL_TOKENS + DEVELOPER_CODE_TOKENS
 
 
+def generate_adaptive_text(weak_keys: List[str], word_count: int = 25) -> str:
+    """Generate words weighted toward keys the user struggles with.
+
+    Args:
+        weak_keys: Keys to emphasize (e.g. from error-rate recommendations).
+        word_count: Number of words to generate.
+
+    Returns:
+        Space-separated words, ~70% drawn from words containing weak keys.
+    """
+    if word_count <= 0:
+        return ""
+    if not weak_keys:
+        return generate_text(word_count)
+
+    weak_set = set(weak_keys)
+    weighted_words = [
+        word for word in _COMMON_WORDS
+        if any(key in word for key in weak_set)
+    ]
+    if not weighted_words:
+        weighted_words = _COMMON_WORDS
+
+    words: List[str] = []
+    for _ in range(word_count):
+        pool = weighted_words if random.random() < 0.7 else _COMMON_WORDS
+        words.append(random.choice(pool))
+    return " ".join(words)
+
+
 def generate_text(word_count: int = 25) -> str:
     """Return a random sequence of common words joined by spaces.
 

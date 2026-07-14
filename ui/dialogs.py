@@ -36,6 +36,11 @@ from core.heatmap import (
     create_keyboard_heatmap,
     create_finger_error_chart,
 )
+from core.analytics import (
+    compute_streaks,
+    get_practice_recommendations,
+    normalize_stats_for_display,
+)
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -48,6 +53,9 @@ from core.constants import (
     DEFAULT_DEVELOPER_KEYS_MODE,
     DEVELOPER_KEYS_MODES,
     DEFAULT_THEME,
+    DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_TIMED_MODE_SECONDS,
+    TIMED_MODE_OPTIONS,
 )
 
 class StatisticsDialog(QDialog):
@@ -59,53 +67,55 @@ class StatisticsDialog(QDialog):
         self.lessons = lessons
         self.setWindowTitle("📊 Typing Statistics")
         self.setMinimumSize(700, 550)
+        self._built_tabs: set[int] = set()
+        self._tab_specs = [
+            ("📈 Overview", self._create_overview_tab),
+            ("📊 Progress", self._create_progress_tab),
+            ("🏆 Performance", self._create_performance_tab),
+            ("📜 History", self._create_history_tab),
+            ("🔥 Error Heatmap", self._create_heatmap_tab),
+            ("📉 Error Trends", self._create_trends_tab),
+        ]
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Create tab widget
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
+        self._tabs = QTabWidget()
+        for title, _ in self._tab_specs:
+            self._tabs.addTab(QWidget(), title)
+        self._tabs.currentChanged.connect(self._ensure_tab_built)
+        layout.addWidget(self._tabs)
 
-        # Overview tab
-        overview_tab = self._create_overview_tab()
-        tabs.addTab(overview_tab, "📈 Overview")
-
-        # Progress tab
-        progress_tab = self._create_progress_tab()
-        tabs.addTab(progress_tab, "📊 Progress")
-
-        # Performance tab
-        performance_tab = self._create_performance_tab()
-        tabs.addTab(performance_tab, "🏆 Performance")
-
-        # History tab
-        history_tab = self._create_history_tab()
-        tabs.addTab(history_tab, "📜 History")
-
-        # Heatmap tab
-        heatmap_tab = self._create_heatmap_tab()
-        tabs.addTab(heatmap_tab, "🔥 Error Heatmap")
-
-        # Error trends tab
-        trends_tab = self._create_trends_tab()
-        tabs.addTab(trends_tab, "📉 Error Trends")
-
-        # Buttons
         button_layout = QHBoxLayout()
-        
+
         export_btn = QPushButton("📁 Export to CSV")
         export_btn.clicked.connect(self._export_csv)
         button_layout.addWidget(export_btn)
-        
+
         button_layout.addStretch()
-        
+
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
         button_layout.addWidget(close_btn)
-        
+
         layout.addLayout(button_layout)
+
+        self._ensure_tab_built(0)
+
+    def _ensure_tab_built(self, index: int) -> None:
+        """Lazy-load tab content on first visit."""
+        if index < 0 or index in self._built_tabs:
+            return
+
+        title, builder = self._tab_specs[index]
+        widget = builder()
+        old = self._tabs.widget(index)
+        self._tabs.removeTab(index)
+        self._tabs.insertTab(index, widget, title)
+        if old is not None:
+            old.deleteLater()
+        self._built_tabs.add(index)
 
     def _create_overview_tab(self) -> QWidget:
         """Create the overview statistics tab."""
@@ -150,18 +160,16 @@ class StatisticsDialog(QDialog):
 
         layout.addWidget(stats_group)
 
-        # Practice streak (simplified - counts unique days)
-        unique_days = set()
-        for s in history:
-            try:
-                dt = datetime.fromisoformat(s.get("timestamp", ""))
-                unique_days.add(dt.date())
-            except (ValueError, TypeError):
-                pass
+        current_streak, longest_streak, unique_days = compute_streaks(history)
 
         streak_group = QGroupBox("🔥 Practice Streak")
         streak_layout = QVBoxLayout(streak_group)
-        streak_label = QLabel(f"You've practiced on {len(unique_days)} unique days!")
+        streak_lines = [
+            f"Current streak: {current_streak} day{'s' if current_streak != 1 else ''}",
+            f"Longest streak: {longest_streak} day{'s' if longest_streak != 1 else ''}",
+            f"Total practice days: {unique_days}",
+        ]
+        streak_label = QLabel("\n".join(streak_lines))
         streak_label.setStyleSheet("font-size: 14px;")
         streak_layout.addWidget(streak_label)
         layout.addWidget(streak_group)
@@ -308,6 +316,35 @@ class StatisticsDialog(QDialog):
         lesson_layout.addWidget(lesson_text)
         layout.addWidget(lesson_group)
 
+        # Practice recommendations from per-key error rates
+        errors = self.progress_store.get_key_error_stats()
+        attempts = self.progress_store.get_key_attempt_stats()
+        recommendations = get_practice_recommendations(errors, attempts)
+
+        rec_group = QGroupBox("🎯 Practice These Keys")
+        rec_layout = QVBoxLayout(rec_group)
+        rec_text = QTextEdit()
+        rec_text.setReadOnly(True)
+        rec_text.setMaximumHeight(140)
+        rec_text.setFont(QFont("Courier New", 11))
+
+        if recommendations:
+            rec_lines = ["Rank | Key    | Error Rate | Errors / Attempts"]
+            rec_lines.append("-" * 45)
+            for i, (key, rate, err_count, att_count) in enumerate(recommendations, 1):
+                key_display = key.upper() if key != " " else "SPACE"
+                rec_lines.append(
+                    f" {i:2d}  | {key_display:6s} | {rate * 100:5.1f}%     | {err_count:4d} / {att_count}"
+                )
+            rec_text.setText("\n".join(rec_lines))
+        else:
+            rec_text.setText(
+                "Complete more sessions (10+ attempts per key) to unlock targeted recommendations."
+            )
+
+        rec_layout.addWidget(rec_text)
+        layout.addWidget(rec_group)
+
         layout.addStretch()
         return widget
 
@@ -374,6 +411,10 @@ class StatisticsDialog(QDialog):
             )
         self._heatmap_lesson_combo.currentIndexChanged.connect(self._on_heatmap_lesson_changed)
         filter_layout.addWidget(self._heatmap_lesson_combo, stretch=1)
+
+        self._heatmap_rate_check = QCheckBox("Show error rate (%) instead of raw counts")
+        self._heatmap_rate_check.stateChanged.connect(self._on_heatmap_lesson_changed)
+        filter_layout.addWidget(self._heatmap_rate_check)
         layout.addLayout(filter_layout)
 
         # Container whose contents are rebuilt when the lesson filter changes.
@@ -382,19 +423,28 @@ class StatisticsDialog(QDialog):
         self._heatmap_content_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._heatmap_content)
 
-        self._render_heatmap_content(global_stats)
+        self._render_heatmap_content(global_stats, self.progress_store.get_key_attempt_stats())
         return widget
 
-    def _on_heatmap_lesson_changed(self, index: int) -> None:
+    def _on_heatmap_lesson_changed(self, index: int = 0) -> None:
         """Re-render the heatmap content for the selected lesson (or all)."""
-        lesson_index = self._heatmap_lesson_combo.itemData(index)
-        if lesson_index is None:
-            stats = self.progress_store.get_key_error_stats()
-        else:
-            stats = self.progress_store.get_lesson_key_errors(lesson_index)
-        self._render_heatmap_content(stats)
+        if not hasattr(self, "_heatmap_lesson_combo"):
+            return
 
-    def _render_heatmap_content(self, key_error_stats: dict) -> None:
+        lesson_index = self._heatmap_lesson_combo.currentData()
+        if lesson_index is None:
+            errors = self.progress_store.get_key_error_stats()
+            attempts = self.progress_store.get_key_attempt_stats()
+        else:
+            errors = self.progress_store.get_lesson_key_errors(lesson_index)
+            attempts = self.progress_store.get_lesson_key_attempts(lesson_index)
+        self._render_heatmap_content(errors, attempts)
+
+    def _render_heatmap_content(
+        self,
+        key_error_stats: dict,
+        key_attempt_stats: dict | None = None,
+    ) -> None:
         """Populate the heatmap container with charts for the given stats."""
         # Clear any previously rendered content.
         while self._heatmap_content_layout.count():
@@ -415,12 +465,30 @@ class StatisticsDialog(QDialog):
         theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
         theme = get_theme(theme_name)
 
+        use_error_rate = (
+            hasattr(self, "_heatmap_rate_check")
+            and self._heatmap_rate_check.isChecked()
+            and key_attempt_stats
+        )
+        display_stats = normalize_stats_for_display(
+            key_error_stats,
+            key_attempt_stats,
+            use_error_rate=use_error_rate,
+        )
+        metric_label = "Error Rate" if use_error_rate else "Errors"
+        value_suffix = "%" if use_error_rate else ""
+
         # Keyboard heatmap
         heatmap_group = QGroupBox("⌨️ Keyboard Error Heatmap")
         heatmap_layout = QVBoxLayout(heatmap_group)
 
         heatmap_label = QLabel()
-        heatmap_pixmap = create_keyboard_heatmap(key_error_stats, theme)
+        heatmap_pixmap = create_keyboard_heatmap(
+            display_stats,
+            theme,
+            metric_label=metric_label,
+            value_suffix=value_suffix,
+        )
         if not heatmap_pixmap.isNull():
             heatmap_label.setPixmap(heatmap_pixmap)
         else:
@@ -447,18 +515,29 @@ class StatisticsDialog(QDialog):
         problem_keys_group = QGroupBox("🎯 Most Problematic Keys")
         problem_keys_layout = QVBoxLayout(problem_keys_group)
 
-        sorted_errors = sorted(key_error_stats.items(), key=lambda x: x[1], reverse=True)[:10]
+        sorted_items = sorted(
+            display_stats.items() if use_error_rate else key_error_stats.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )[:10]
 
         problem_text = QTextEdit()
         problem_text.setReadOnly(True)
         problem_text.setMaximumHeight(120)
         problem_text.setFont(QFont("Courier New", 11))
 
-        lines = ["Rank | Key    | Errors"]
-        lines.append("-" * 25)
-        for i, (key, count) in enumerate(sorted_errors, 1):
-            key_display = key.upper() if key != ' ' else 'SPACE'
-            lines.append(f" {i:2d}  | {key_display:6s} | {count:4d}")
+        if use_error_rate:
+            lines = ["Rank | Key    | Error Rate"]
+            lines.append("-" * 28)
+            for i, (key, rate) in enumerate(sorted_items, 1):
+                key_display = key.upper() if key != " " else "SPACE"
+                lines.append(f" {i:2d}  | {key_display:6s} | {rate:5.1f}%")
+        else:
+            lines = ["Rank | Key    | Errors"]
+            lines.append("-" * 25)
+            for i, (key, count) in enumerate(sorted_items, 1):
+                key_display = key.upper() if key != " " else "SPACE"
+                lines.append(f" {i:2d}  | {key_display:6s} | {int(count):4d}")
 
         problem_text.setText("\n".join(lines))
         problem_keys_layout.addWidget(problem_text)
@@ -650,7 +729,36 @@ class SettingsDialog(QDialog):
         self.word_count_spin.setToolTip("Number of random words to generate for practice")
         random_layout.addRow("Word Count:", self.word_count_spin)
 
+        self.adaptive_drills_check = QCheckBox("Adaptive drills (emphasize weak keys)")
+        self.adaptive_drills_check.setChecked(
+            self.progress_store.get_setting("adaptive_drills", DEFAULT_ADAPTIVE_DRILLS)
+        )
+        self.adaptive_drills_check.setToolTip(
+            "Weight Random Words drills toward keys with the highest error rates"
+        )
+        random_layout.addRow(self.adaptive_drills_check)
+
         layout.addWidget(random_group)
+
+        # Timed Mode Settings
+        timed_group = QGroupBox("⏱ Timed Mode")
+        timed_layout = QFormLayout(timed_group)
+
+        self.timed_mode_combo = QComboBox()
+        for label, seconds in TIMED_MODE_OPTIONS:
+            self.timed_mode_combo.addItem(label, userData=seconds)
+        current_timed = self.progress_store.get_setting(
+            "timed_mode_seconds", DEFAULT_TIMED_MODE_SECONDS
+        )
+        for index in range(self.timed_mode_combo.count()):
+            if self.timed_mode_combo.itemData(index) == current_timed:
+                self.timed_mode_combo.setCurrentIndex(index)
+                break
+        self.timed_mode_combo.setToolTip(
+            "Countdown timer starts on first keystroke; session ends when time expires"
+        )
+        timed_layout.addRow("Duration:", self.timed_mode_combo)
+        layout.addWidget(timed_group)
 
         # Developer Keys Settings
         developer_group = QGroupBox("⌨️ Developer Keys Settings")
@@ -699,6 +807,10 @@ class SettingsDialog(QDialog):
         self.progress_store.set_setting("show_keyboard", self.show_keyboard_check.isChecked())
         self.progress_store.set_setting("font_size", self.font_size_spin.value())
         self.progress_store.set_setting("random_word_count", self.word_count_spin.value())
+        self.progress_store.set_setting("adaptive_drills", self.adaptive_drills_check.isChecked())
+        self.progress_store.set_setting(
+            "timed_mode_seconds", self.timed_mode_combo.currentData()
+        )
         self.progress_store.set_setting("developer_keys_length", self.developer_length_spin.value())
         self.progress_store.set_setting("developer_keys_mode", self.developer_mode_combo.currentText())
         self.settings_changed.emit()

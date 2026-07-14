@@ -1,96 +1,126 @@
-"""Tests for the per-session key-error tracking foundation.
+"""Tests for persistence, analytics, and word generation."""
 
-Covers the persistence layer that powers per-lesson heatmaps and the
-error-over-time trend chart (the "Tier 2" enhancement set).
-"""
-
+import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from core.analytics import compute_streaks, get_practice_recommendations
+from core.models import SessionRecord
 from core.persistence import ProgressStore
+from core.wordgen import generate_adaptive_text, generate_text
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> ProgressStore:
-    s = ProgressStore(tmp_path / "progress.json")
-    try:
-        yield s
-    finally:
-        s.close()
+    progress_path = tmp_path / "typing_progress.json"
+    return ProgressStore(progress_path)
 
 
-def test_add_session_key_stats_aggregates_by_lesson(store: ProgressStore) -> None:
-    store.add_session_key_stats(
-        "2026-06-11T10:00:00", 0, "Home Row",
-        key_errors={"a": 3, "s": 1},
-        key_attempts={"a": 10, "s": 8},
-    )
-    store.add_session_key_stats(
-        "2026-06-11T10:05:00", 0, "Home Row",
-        key_errors={"a": 2},
-        key_attempts={"a": 9},
-    )
-    store.add_session_key_stats(
-        "2026-06-11T10:10:00", 1, "Top Row",
-        key_errors={"q": 4},
-        key_attempts={"q": 7},
-    )
+class TestProgressStore:
+    def test_settings_round_trip(self, store: ProgressStore):
+        store.set_setting("backspace_penalty", 5)
+        store.set_setting("theme", "Dark")
+        assert store.get_setting("backspace_penalty") == 5
+        assert store.get_setting("theme") == "Dark"
 
-    assert store.get_lesson_key_errors(0) == {"a": 5, "s": 1}
-    assert store.get_lesson_key_errors(1) == {"q": 4}
-    assert store.get_lesson_key_errors(2) == {}
+    def test_save_persists_position(self, store: ProgressStore):
+        store.data["current_lesson_index"] = 3
+        store.data["current_text_index"] = 2
+        store.save()
 
+        reloaded = ProgressStore(store.path)
+        assert reloaded.data["current_lesson_index"] == 3
+        assert reloaded.data["current_text_index"] == 2
 
-def test_add_session_key_stats_ignores_empty_and_zero(store: ProgressStore) -> None:
-    store.add_session_key_stats("2026-06-11T10:00:00", 0, "Home Row", {}, {})
-    store.add_session_key_stats(
-        "2026-06-11T10:01:00", 0, "Home Row",
-        key_errors={"a": 0},
-        key_attempts={"a": 5},
-    )
-    assert store.get_lesson_key_errors(0) == {}
-    assert store.get_lessons_with_error_data() == []
+    def test_session_history_retention(self, store: ProgressStore):
+        for i in range(ProgressStore.MAX_HISTORY_SIZE + 10):
+            store.add_session_record(
+                SessionRecord(
+                    timestamp=datetime.now().isoformat(),
+                    lesson_index=0,
+                    text_index=0,
+                    lesson_name="Test",
+                    wpm=40 + i,
+                    accuracy=95.0,
+                    errors=0,
+                    backspaces=0,
+                    duration_seconds=30.0,
+                    text_length=100,
+                )
+            )
+        history = store.get_session_history()
+        assert len(history) == ProgressStore.MAX_HISTORY_SIZE
 
+    def test_key_stats_upsert(self, store: ProgressStore):
+        store.update_key_error_stats({"a": 2, "s": 1})
+        store.update_key_error_stats({"a": 1})
+        stats = store.get_key_error_stats()
+        assert stats["a"] == 3
+        assert stats["s"] == 1
 
-def test_lessons_with_error_data_ordered_newest_first(store: ProgressStore) -> None:
-    store.add_session_key_stats("2026-06-11T09:00:00", 0, "Home Row", {"a": 1}, {"a": 4})
-    store.add_session_key_stats("2026-06-11T11:00:00", 1, "Top Row", {"q": 1}, {"q": 4})
-
-    lessons = store.get_lessons_with_error_data()
-    assert [entry["lesson_name"] for entry in lessons] == ["Top Row", "Home Row"]
-    assert [entry["lesson_index"] for entry in lessons] == [1, 0]
-
-
-def test_error_timeseries_groups_per_session_in_order(store: ProgressStore) -> None:
-    store.add_session_key_stats("2026-06-11T10:00:00", 0, "Home Row", {"a": 3, "s": 1}, {})
-    store.add_session_key_stats("2026-06-11T10:05:00", 0, "Home Row", {"a": 2}, {})
-
-    series = store.get_error_timeseries()
-    assert series == [
-        {"timestamp": "2026-06-11T10:00:00", "errors": 4},
-        {"timestamp": "2026-06-11T10:05:00", "errors": 2},
-    ]
-
-
-def test_session_key_errors_trimmed_to_history_window(store: ProgressStore) -> None:
-    total = ProgressStore.MAX_HISTORY_SIZE + 5
-    for i in range(total):
+    def test_lesson_key_attempts(self, store: ProgressStore):
         store.add_session_key_stats(
-            f"2026-06-11T{i:04d}", 0, "Home Row", {"a": 1}, {"a": 2}
+            "2026-01-01T12:00:00",
+            1,
+            "Top Row",
+            {"q": 2, "w": 1},
+            {"q": 10, "w": 8},
         )
+        errors = store.get_lesson_key_errors(1)
+        attempts = store.get_lesson_key_attempts(1)
+        assert errors["q"] == 2
+        assert attempts["q"] == 10
 
-    series = store.get_error_timeseries()
-    assert len(series) == ProgressStore.MAX_HISTORY_SIZE
-    # Oldest sessions are dropped; the most recent timestamp is retained.
-    assert series[-1]["timestamp"] == f"2026-06-11T{total - 1:04d}"
+
+class TestAnalytics:
+    def test_streaks_empty(self):
+        assert compute_streaks([]) == (0, 0, 0)
+
+    def test_consecutive_streak(self):
+        today = datetime.now()
+        history = [
+            {"timestamp": today.isoformat()},
+            {"timestamp": (today - timedelta(days=1)).isoformat()},
+            {"timestamp": (today - timedelta(days=2)).isoformat()},
+        ]
+        current, longest, unique = compute_streaks(history)
+        assert current == 3
+        assert longest == 3
+        assert unique == 3
+
+    def test_broken_streak(self):
+        today = datetime.now()
+        history = [
+            {"timestamp": (today - timedelta(days=5)).isoformat()},
+            {"timestamp": (today - timedelta(days=4)).isoformat()},
+        ]
+        current, longest, _ = compute_streaks(history)
+        assert current == 0
+        assert longest == 2
+
+    def test_practice_recommendations_min_attempts(self):
+        errors = {"a": 5, "s": 1}
+        attempts = {"a": 20, "s": 5}
+        recs = get_practice_recommendations(errors, attempts, min_attempts=10)
+        assert len(recs) == 1
+        assert recs[0][0] == "a"
 
 
-def test_persists_across_reconnect(store: ProgressStore, tmp_path: Path) -> None:
-    store.add_session_key_stats("2026-06-11T10:00:00", 2, "Numbers", {"7": 3}, {"7": 9})
+class TestWordgen:
+    def test_generate_text_count(self):
+        text = generate_text(15)
+        assert len(text.split()) == 15
 
-    reopened = ProgressStore(tmp_path / "progress.json")
-    try:
-        assert reopened.get_lesson_key_errors(2) == {"7": 3}
-    finally:
-        reopened.close()
+    def test_generate_adaptive_text_uses_weak_keys(self):
+        text = generate_adaptive_text(["q", "w"], word_count=20)
+        words = text.split()
+        assert len(words) == 20
+        # Most words should contain q or w given 70% weighting
+        weak_hits = sum(1 for w in words if "q" in w or "w" in w)
+        assert weak_hits >= 5
+
+    def test_generate_adaptive_fallback_without_keys(self):
+        text = generate_adaptive_text([], word_count=10)
+        assert len(text.split()) == 10

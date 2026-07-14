@@ -22,10 +22,11 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession, SessionRecord
 from core.persistence import ProgressStore
 from core.lessons import build_lessons
-from core.wordgen import generate_text, generate_developer_text
+from core.wordgen import generate_text, generate_developer_text, generate_adaptive_text
 from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
+from core.analytics import get_practice_recommendations
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -37,6 +38,8 @@ from core.constants import (
     DEFAULT_DEVELOPER_KEYS_LENGTH,
     DEFAULT_DEVELOPER_KEYS_MODE,
     DEFAULT_THEME,
+    DEFAULT_TIMED_MODE_SECONDS,
+    DEFAULT_ADAPTIVE_DRILLS,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
 )
@@ -62,7 +65,21 @@ class TypingPracticeApp(QMainWindow):
         self._key_stats_recorded_length = 0  # How much of typed_text has already been counted for key stats
         self._pending_display_update = False  # Guard for deferred display refresh
         self._round_complete = False  # True after a round finishes; Space advances to the next
+        self._last_highlighted_length = 0  # Incremental input highlighting cursor
+        self._cached_target = ""
+        self._cached_target_parts: List[str] = []
+        self._cached_target_styles: List[str] = []
+        self._cached_target_html_parts: List[str] = []
+        self._timed_seconds_remaining: Optional[float] = None
+        self._timed_mode_active = False
         self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
+
+        # Cached hot-path settings (refreshed in _apply_settings)
+        self._backspace_penalty = DEFAULT_BACKSPACE_PENALTY
+        self._backspace_accuracy_weight = DEFAULT_BACKSPACE_ACCURACY_WEIGHT
+        self._strict_mode = DEFAULT_STRICT_MODE
+        self._timed_mode_seconds = DEFAULT_TIMED_MODE_SECONDS
+        self._adaptive_drills = DEFAULT_ADAPTIVE_DRILLS
 
         # Initialize the celebration sound manager with this window as parent
         CelebrationSoundManager.initialize(self)
@@ -123,6 +140,11 @@ class TypingPracticeApp(QMainWindow):
         # Initialize celebration overlay
         self.celebration_overlay = CelebrationOverlay(self)
         self.celebration_overlay.resize(self.size())
+
+        # Timed mode countdown (1s tick)
+        self._timed_timer = QTimer(self)
+        self._timed_timer.setInterval(1000)
+        self._timed_timer.timeout.connect(self._on_timed_tick)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -334,6 +356,13 @@ class TypingPracticeApp(QMainWindow):
         )
         stats_layout.addWidget(self.best_wpm_label)
 
+        self.timer_label = QLabel("")
+        self.timer_label.setStyleSheet(
+            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #455A64; color: white; border-radius: 5px;"
+        )
+        self.timer_label.setVisible(False)
+        stats_layout.addWidget(self.timer_label)
+
         layout.addLayout(stats_layout)
 
     def _add_progress_section(self, layout: QVBoxLayout) -> None:
@@ -408,6 +437,20 @@ class TypingPracticeApp(QMainWindow):
 
     def _apply_settings(self) -> None:
         """Apply saved settings to the UI."""
+        self._backspace_penalty = self.progress_store.get_setting(
+            "backspace_penalty", DEFAULT_BACKSPACE_PENALTY
+        )
+        self._backspace_accuracy_weight = self.progress_store.get_setting(
+            "backspace_accuracy_weight", DEFAULT_BACKSPACE_ACCURACY_WEIGHT
+        )
+        self._strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
+        self._timed_mode_seconds = self.progress_store.get_setting(
+            "timed_mode_seconds", DEFAULT_TIMED_MODE_SECONDS
+        )
+        self._adaptive_drills = self.progress_store.get_setting(
+            "adaptive_drills", DEFAULT_ADAPTIVE_DRILLS
+        )
+
         # Load and apply theme
         theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
         self.current_theme = get_theme(theme_name)
@@ -421,8 +464,7 @@ class TypingPracticeApp(QMainWindow):
         self.keyboard_toggle.setText("⌨️ Hide Keyboard" if show_keyboard else "⌨️ Show Keyboard")
 
         # Strict mode indicator
-        strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
-        self.strict_mode_indicator.setVisible(strict_mode)
+        self.strict_mode_indicator.setVisible(self._strict_mode)
 
         # Font size
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
@@ -475,9 +517,7 @@ class TypingPracticeApp(QMainWindow):
                 self._advance_from_finished_line()
                 return True  # Consume so no extra space is typed
             if key_event.key() == Qt.Key.Key_Backspace:
-                strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
-                
-                if strict_mode:
+                if self._strict_mode:
                     # Block backspace and show visual feedback
                     self._flash_strict_mode_warning()
                     return True  # Consume the event
@@ -500,8 +540,7 @@ class TypingPracticeApp(QMainWindow):
     def _update_backspace_label(self) -> None:
         """Update the backspace counter display."""
         count = self.session.backspace_count
-        penalty = self.progress_store.get_setting("backspace_penalty", DEFAULT_BACKSPACE_PENALTY)
-        wpm_penalty = count * penalty
+        wpm_penalty = count * self._backspace_penalty
         
         if count > 0:
             self.backspace_label.setText(f"⌫: {count} (-{wpm_penalty})")
@@ -659,14 +698,6 @@ class TypingPracticeApp(QMainWindow):
             return "developer"
         return None
 
-    def _generate_practice_text(self, generated_kind: str) -> str:
-        if generated_kind == "random":
-            word_count = self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
-            return generate_text(word_count)
-        if generated_kind == "developer":
-            return generate_developer_text(self._developer_keys_length(), self._developer_keys_mode())
-        return ""
-
     def _get_or_create_generated_text(self, generated_kind: str) -> str:
         if generated_kind == "developer":
             persisted = self.progress_store.get_developer_text(self.current_lesson_index)
@@ -714,7 +745,10 @@ class TypingPracticeApp(QMainWindow):
         self.session.reset()
         self._previous_typed_length = 0
         self._key_stats_recorded_length = 0
+        self._last_highlighted_length = 0
+        self._cached_target = ""
         self._round_complete = False
+        self._stop_timed_mode()
         self._update_backspace_label()
 
         if self.mode == "lesson":
@@ -733,6 +767,7 @@ class TypingPracticeApp(QMainWindow):
 
         if not self.session.is_active and self.session.typed_text:
             self.session.begin()
+            self._start_timed_mode_if_enabled()
 
         self._previous_typed_length = len(self.session.typed_text)
 
@@ -740,7 +775,11 @@ class TypingPracticeApp(QMainWindow):
             self._pending_display_update = True
             QTimer.singleShot(0, self._flush_display)
 
-        if self.session.typed_text == self.current_target_text and self.current_target_text:
+        if (
+            not self._round_complete
+            and self.session.typed_text == self.current_target_text
+            and self.current_target_text
+        ):
             self.on_completion()
 
     def _flush_display(self) -> None:
@@ -825,27 +864,38 @@ class TypingPracticeApp(QMainWindow):
         self._key_stats_recorded_length = confirmed_length
 
     def _build_target_highlight(self, target: str, typed: str) -> Tuple[str, int]:
-        html_parts: List[str] = []
+        if target != self._cached_target:
+            self._cached_target = target
+            self._cached_target_parts = [self._format_char(char) for char in target]
+            self._cached_target_styles = [""] * len(target)
+            self._cached_target_html_parts = [""] * len(target)
+
         errors = 0
+        style_templates = {
+            "correct": '<span style="color: green; background-color: #c8e6c9;">{char}</span>',
+            "error": (
+                '<span style="color: red; background-color: #ffcdd2; '
+                'text-decoration: underline;">{char}</span>'
+            ),
+            "gray": '<span style="color: gray;">{char}</span>',
+        }
 
         for index, char in enumerate(target):
-            styled_char = self._format_char(char)
             if index < len(typed):
-                typed_char = typed[index]
-                if typed_char == char:
-                    html_parts.append(
-                        f'<span style="color: green; background-color: #c8e6c9;">{styled_char}</span>'
-                    )
-                else:
+                style = "correct" if typed[index] == char else "error"
+                if style == "error":
                     errors += 1
-                    html_parts.append(
-                        '<span style="color: red; background-color: #ffcdd2; text-decoration: underline;">'
-                        f"{styled_char}</span>"
-                    )
             else:
-                html_parts.append(f'<span style="color: gray;">{styled_char}</span>')
+                style = "gray"
 
-        return "".join(html_parts), errors
+            if index < len(self._cached_target_styles) and self._cached_target_styles[index] == style:
+                continue
+
+            self._cached_target_styles[index] = style
+            styled_char = self._cached_target_parts[index]
+            self._cached_target_html_parts[index] = style_templates[style].format(char=styled_char)
+
+        return "".join(self._cached_target_html_parts[: len(target)]), errors
 
     @staticmethod
     def _format_char(char: str) -> str:
@@ -860,28 +910,45 @@ class TypingPracticeApp(QMainWindow):
         cursor_state = self.typing_input.textCursor()
         anchor = cursor_state.anchor()
         position = cursor_state.position()
+        new_len = len(typed)
+        prev_len = self._last_highlighted_length
 
         self.typing_input.blockSignals(True)
         try:
-            reset_cursor = QTextCursor(doc)
-            reset_cursor.beginEditBlock()
-            reset_cursor.select(QTextCursor.SelectionType.Document)
-            reset_cursor.setCharFormat(self.input_default_format)
-            reset_cursor.clearSelection()
-            reset_cursor.endEditBlock()
+            if new_len < prev_len:
+                reset_cursor = QTextCursor(doc)
+                reset_cursor.setPosition(new_len)
+                reset_cursor.movePosition(
+                    QTextCursor.MoveOperation.End,
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+                reset_cursor.setCharFormat(self.input_default_format)
+                reset_cursor.clearSelection()
+                start_index = new_len
+            else:
+                start_index = prev_len
 
             doc_length = max(0, doc.characterCount() - 1)
-            for idx, char in enumerate(typed):
+            for idx in range(start_index, new_len):
                 if idx >= doc_length:
                     break
                 span_cursor = QTextCursor(doc)
                 span_cursor.setPosition(idx)
-                span_cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor)
+                span_cursor.movePosition(
+                    QTextCursor.MoveOperation.Right,
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
                 if idx < len(target):
-                    fmt = self.correct_char_format if char == target[idx] else self.error_char_format
+                    fmt = (
+                        self.correct_char_format
+                        if typed[idx] == target[idx]
+                        else self.error_char_format
+                    )
                 else:
                     fmt = self.extra_char_format
                 span_cursor.setCharFormat(fmt)
+
+            self._last_highlighted_length = new_len
         finally:
             restored_cursor = self.typing_input.textCursor()
             restored_cursor.setPosition(anchor)
@@ -900,9 +967,7 @@ class TypingPracticeApp(QMainWindow):
                 if self.session.start_time
                 else None
             )
-        penalty_factor = self.progress_store.get_setting(
-            "backspace_penalty", DEFAULT_BACKSPACE_PENALTY
-        )
+        penalty_factor = self._backspace_penalty
         return calculate_wpm(
             typed=typed,
             elapsed_seconds=elapsed,
@@ -915,15 +980,12 @@ class TypingPracticeApp(QMainWindow):
         self.accuracy_label.setText(f"Accuracy: {accuracy:.1f}%")
 
     def _calculate_accuracy(self, typed: str) -> float:
-        backspace_weight = self.progress_store.get_setting(
-            "backspace_accuracy_weight", DEFAULT_BACKSPACE_ACCURACY_WEIGHT
-        )
         return calculate_accuracy(
             typed=typed,
             target=self.current_target_text,
             mismatch_errors=self.session.errors,
             backspace_count=self.session.backspace_count,
-            backspace_weight=backspace_weight,
+            backspace_weight=self._backspace_accuracy_weight,
         )
 
     def _update_progress_indicators(self, typed: str, target: str) -> None:
@@ -939,8 +1001,73 @@ class TypingPracticeApp(QMainWindow):
     def _update_error_label(self, total_errors: int) -> None:
         self.error_label.setText(f"Errors: {total_errors}")
 
+    def _generate_practice_text(self, generated_kind: str) -> str:
+        if generated_kind == "random":
+            word_count = self.progress_store.get_setting(
+                "random_word_count", DEFAULT_RANDOM_WORD_COUNT
+            )
+            if self._adaptive_drills:
+                errors = self.progress_store.get_key_error_stats()
+                attempts = self.progress_store.get_key_attempt_stats()
+                recommendations = get_practice_recommendations(
+                    errors, attempts, min_attempts=5, top_n=5
+                )
+                weak_keys = [key for key, _, _, _ in recommendations]
+                if weak_keys:
+                    return generate_adaptive_text(weak_keys, word_count)
+            return generate_text(word_count)
+        if generated_kind == "developer":
+            return generate_developer_text(self._developer_keys_length(), self._developer_keys_mode())
+        return ""
+
+    def _start_timed_mode_if_enabled(self) -> None:
+        if self._timed_mode_seconds <= 0:
+            self.timer_label.setVisible(False)
+            return
+        self._timed_seconds_remaining = float(self._timed_mode_seconds)
+        self._timed_mode_active = True
+        self.timer_label.setVisible(True)
+        self._update_timer_label()
+        self._timed_timer.start()
+
+    def _stop_timed_mode(self) -> None:
+        self._timed_timer.stop()
+        self._timed_mode_active = False
+        self._timed_seconds_remaining = None
+        self.timer_label.setVisible(False)
+
+    def _update_timer_label(self) -> None:
+        if self._timed_seconds_remaining is None:
+            return
+        remaining = max(0, int(self._timed_seconds_remaining))
+        minutes = remaining // 60
+        seconds = remaining % 60
+        self.timer_label.setText(f"⏱ {minutes}:{seconds:02d}")
+
+    def _on_timed_tick(self) -> None:
+        if self._timed_seconds_remaining is None or self._round_complete:
+            return
+        self._timed_seconds_remaining -= 1
+        self._update_timer_label()
+        if self._timed_seconds_remaining <= 0:
+            self._stop_timed_mode()
+            self.on_timed_completion()
+
+    def on_timed_completion(self) -> None:
+        """End a timed drill when the countdown reaches zero."""
+        if self._round_complete or not self.session.typed_text:
+            return
+        self._finalize_session(timed_out=True)
+
     def on_completion(self) -> None:
         """Handle final stats and UI state once the text matches."""
+        if self._round_complete:
+            return
+        self._stop_timed_mode()
+        self._finalize_session(timed_out=False)
+
+    def _finalize_session(self, *, timed_out: bool) -> None:
+        """Record session results for exact completion or timed expiry."""
         elapsed_time = time.time() - self.session.start_time if self.session.start_time else 0
         wpm = self._calculate_wpm(self.session.typed_text, elapsed_time)
         accuracy = self._calculate_accuracy(self.session.typed_text)
@@ -949,18 +1076,25 @@ class TypingPracticeApp(QMainWindow):
         self.keyboard_widget.clear_highlights()
         self._round_complete = True
 
-        # Build completion message with backspace info
         backspace_count = self.session.backspace_count
-        penalty_factor = self.progress_store.get_setting("backspace_penalty", DEFAULT_BACKSPACE_PENALTY)
-        wpm_penalty = backspace_count * penalty_factor
+        wpm_penalty = backspace_count * self._backspace_penalty
 
-        completion_msg = (
-            f"🎉 Excellent work!\n\n"
-            f"Speed: {wpm} WPM\n"
-            f"Accuracy: {accuracy:.1f}%\n"
-            f"Time: {elapsed_time:.1f} seconds\n"
-            f"Backspaces: {backspace_count}"
-        )
+        if timed_out:
+            completion_msg = (
+                f"⏱ Time's up!\n\n"
+                f"Speed: {wpm} WPM\n"
+                f"Accuracy: {accuracy:.1f}%\n"
+                f"Time: {elapsed_time:.1f} seconds\n"
+                f"Backspaces: {backspace_count}"
+            )
+        else:
+            completion_msg = (
+                f"🎉 Excellent work!\n\n"
+                f"Speed: {wpm} WPM\n"
+                f"Accuracy: {accuracy:.1f}%\n"
+                f"Time: {elapsed_time:.1f} seconds\n"
+                f"Backspaces: {backspace_count}"
+            )
         if backspace_count > 0:
             completion_msg += f" (penalty: -{wpm_penalty} WPM)"
 
@@ -968,9 +1102,8 @@ class TypingPracticeApp(QMainWindow):
 
         self._update_description(completion_msg, mode="success")
 
-        # Record session
         lesson_name = (
-            self.lessons[self.current_lesson_index].title 
+            self.lessons[self.current_lesson_index].title
             if self.mode == "lesson" else "Free Practice"
         )
         record = SessionRecord(
@@ -980,20 +1113,20 @@ class TypingPracticeApp(QMainWindow):
             lesson_name=lesson_name,
             wpm=wpm,
             accuracy=round(accuracy, 1),
-            errors=self.session.errors + max(len(self.session.typed_text) - len(self.current_target_text), 0),
+            errors=self.session.errors + max(
+                len(self.session.typed_text) - len(self.current_target_text), 0
+            ),
             backspaces=backspace_count,
             duration_seconds=round(elapsed_time, 1),
-            text_length=len(self.current_target_text),
+            text_length=len(self.session.typed_text) if timed_out else len(self.current_target_text),
         )
         self.progress_store.add_session_record(record)
-        
-        # Update global key statistics
+
         if self.session.key_errors:
             self.progress_store.update_key_error_stats(self.session.key_errors)
         if self.session.key_attempts:
             self.progress_store.update_key_attempt_stats(self.session.key_attempts)
 
-        # Log per-session key errors for per-lesson heatmaps and error trends
         if self.session.key_errors:
             self.progress_store.add_session_key_stats(
                 record.timestamp,
@@ -1008,9 +1141,11 @@ class TypingPracticeApp(QMainWindow):
 
         self.progress_store.save()
 
-        if self.progress_store.get_setting("show_celebration", DEFAULT_SHOW_CELEBRATION):
+        if (
+            not timed_out
+            and self.progress_store.get_setting("show_celebration", DEFAULT_SHOW_CELEBRATION)
+        ):
             self.celebration_overlay.start()
-            # Play the celebratory sound
             CelebrationSoundManager.play()
 
         QTimer.singleShot(2000, self._unlock_text_input)
@@ -1085,6 +1220,7 @@ class TypingPracticeApp(QMainWindow):
         self.progress_store.data["current_lesson_index"] = self.current_lesson_index
         self.progress_store.data["current_text_index"] = self.current_text_index
         self.progress_store.data["best_wpm"] = self.best_wpm.to_dict()
+        self.progress_store.save()
 
     def _update_description(self, text: str, mode: str = "default") -> None:
         style = {

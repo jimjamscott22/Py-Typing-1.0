@@ -1,7 +1,7 @@
 import random
 from typing import Dict, List
 
-from PyQt6.QtCore import Qt, QRectF, QTimer
+from PyQt6.QtCore import Qt, QRectF, QTimer, QRect
 from PyQt6.QtGui import (
     QColor,
     QFont,
@@ -49,28 +49,100 @@ class KeyboardWidget(QWidget):
         self.next_key: str = ""
         self.error_key: str = ""  # Key that should have been pressed on error
         self.theme: Theme = LIGHT_THEME
+        self._key_rects: dict[str, QRect] = {}
+        self._layout_width = 0
+        self._layout_height = 0
         self.setMinimumHeight(180)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+    def _active_highlight_keys(self) -> set[str]:
+        keys: set[str] = set()
+        if self.next_key:
+            keys.add(self.next_key.lower())
+        if self.error_key:
+            keys.add(self.error_key.lower())
+        return keys
+
+    def _invalidate_layout_cache(self) -> None:
+        self._key_rects.clear()
+        self._layout_width = 0
+        self._layout_height = 0
+
+    def resizeEvent(self, event) -> None:
+        self._invalidate_layout_cache()
+        super().resizeEvent(event)
+
+    def _ensure_layout_cache(self) -> None:
+        if (
+            self._key_rects
+            and self._layout_width == self.width()
+            and self._layout_height == self.height()
+        ):
+            return
+
+        self._key_rects.clear()
+        widget_width = self.width() - 20
+        widget_height = self.height() - 20
+        total_units = 15
+        key_unit_width = widget_width / total_units
+        key_height = min(widget_height / 5.5, 32)
+        key_spacing = 3
+        start_x = 10
+        y = 10
+
+        for row in self.KEYBOARD_LAYOUT:
+            x = start_x
+            for key_label, width_mult in row:
+                key_width = key_unit_width * width_mult - key_spacing
+                key_char = self.KEY_CHAR_MAP.get(key_label, key_label.lower())
+                self._key_rects[key_char.lower()] = QRect(
+                    int(x), int(y), int(key_width), int(key_height)
+                )
+                x += key_width + key_spacing
+            y += key_height + key_spacing
+
+        self._layout_width = self.width()
+        self._layout_height = self.height()
+
+    def _dirty_rects_for_keys(self, keys: set[str]) -> list[QRect]:
+        self._ensure_layout_cache()
+        rects: list[QRect] = []
+        for key in keys:
+            rect = self._key_rects.get(key.lower())
+            if rect is not None:
+                rects.append(rect.adjusted(-2, -2, 2, 2))
+        return rects
+
+    def _repaint_keys(self, keys: set[str]) -> None:
+        if not keys:
+            self.update()
+            return
+        for rect in self._dirty_rects_for_keys(keys):
+            self.update(rect)
+
     def set_next_key(self, key: str, error: bool = False) -> None:
         """Set the next key to highlight. If error=True, highlight as error."""
+        previous_keys = self._active_highlight_keys()
         if error:
             self.error_key = key
             self.next_key = ""
         else:
             self.next_key = key
             self.error_key = ""
-        self.update()
+        new_keys = self._active_highlight_keys()
+        self._repaint_keys(previous_keys | new_keys)
 
     def clear_highlights(self) -> None:
         """Clear all key highlights."""
+        previous_keys = self._active_highlight_keys()
         self.next_key = ""
         self.error_key = ""
-        self.update()
+        self._repaint_keys(previous_keys)
 
     def set_theme(self, theme: Theme) -> None:
         """Apply a theme to the keyboard."""
         self.theme = theme
+        self._invalidate_layout_cache()
         self.update()
 
     def paintEvent(self, event) -> None:
