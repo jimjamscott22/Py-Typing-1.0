@@ -70,6 +70,8 @@ class TypingPracticeApp(QMainWindow):
         self._cached_target_parts: List[str] = []
         self._cached_target_styles: List[str] = []
         self._cached_target_html_parts: List[str] = []
+        self._last_target_html = ""
+        self._last_target_typed_len = 0
         self._timed_seconds_remaining: Optional[float] = None
         self._timed_mode_active = False
         self.current_theme: Theme = get_theme(DEFAULT_THEME)  # Current theme
@@ -747,6 +749,8 @@ class TypingPracticeApp(QMainWindow):
         self._key_stats_recorded_length = 0
         self._last_highlighted_length = 0
         self._cached_target = ""
+        self._last_target_html = ""
+        self._last_target_typed_len = 0
         self._round_complete = False
         self._stop_timed_mode()
         self._update_backspace_label()
@@ -825,10 +829,16 @@ class TypingPracticeApp(QMainWindow):
         self.session.errors = mismatches
 
         if target:
-            self.target_text.setText(highlighted_text)
+            if highlighted_text != self._last_target_html:
+                self._last_target_html = highlighted_text
+                self.target_text.setText(highlighted_text)
         elif self.mode == "free":
-            self.target_text.setText(FREE_PRACTICE_PLACEHOLDER)
-        else:
+            placeholder = FREE_PRACTICE_PLACEHOLDER
+            if placeholder != self._last_target_html:
+                self._last_target_html = placeholder
+                self.target_text.setText(placeholder)
+        elif self._last_target_html:
+            self._last_target_html = ""
             self.target_text.setText("")
 
         self._update_wpm_label(typed)
@@ -864,13 +874,24 @@ class TypingPracticeApp(QMainWindow):
         self._key_stats_recorded_length = confirmed_length
 
     def _build_target_highlight(self, target: str, typed: str) -> Tuple[str, int]:
-        if target != self._cached_target:
+        typed_len = len(typed)
+        target_changed = target != self._cached_target
+        if target_changed:
             self._cached_target = target
             self._cached_target_parts = [self._format_char(char) for char in target]
             self._cached_target_styles = [""] * len(target)
             self._cached_target_html_parts = [""] * len(target)
+            self._last_target_typed_len = 0
 
-        errors = 0
+        prev_typed_len = self._last_target_typed_len
+        if target_changed:
+            update_start = 0
+            update_end = len(target)
+        else:
+            update_start = min(prev_typed_len, typed_len)
+            update_end = max(prev_typed_len, typed_len)
+        self._last_target_typed_len = typed_len
+
         style_templates = {
             "correct": '<span style="color: green; background-color: #c8e6c9;">{char}</span>',
             "error": (
@@ -880,14 +901,17 @@ class TypingPracticeApp(QMainWindow):
             "gray": '<span style="color: gray;">{char}</span>',
         }
 
-        for index, char in enumerate(target):
-            if index < len(typed):
-                style = "correct" if typed[index] == char else "error"
+        errors = 0
+        for index in range(len(target)):
+            if index < typed_len:
+                style = "correct" if typed[index] == target[index] else "error"
                 if style == "error":
                     errors += 1
             else:
                 style = "gray"
 
+            if index < update_start or index > update_end:
+                continue
             if index < len(self._cached_target_styles) and self._cached_target_styles[index] == style:
                 continue
 

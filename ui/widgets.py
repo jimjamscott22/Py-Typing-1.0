@@ -147,23 +147,20 @@ class KeyboardWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         """Draw the keyboard with highlighting."""
+        dirty = event.rect()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._ensure_layout_cache()
 
-        # Calculate dimensions
         widget_width = self.width() - 20
         widget_height = self.height() - 20
-        
-        # Calculate key sizes based on available space
-        total_units = 15  # Approximate total width units for longest row
+        total_units = 15
         key_unit_width = widget_width / total_units
         key_height = min(widget_height / 5.5, 32)
         key_spacing = 3
-        
         start_x = 10
         y = 10
 
-        # Colors from theme
         bg_color = QColor(self.theme.keyboard_bg)
         key_bg = QColor(self.theme.keyboard_key_bg)
         key_border = QColor(self.theme.keyboard_key_border)
@@ -171,21 +168,20 @@ class KeyboardWidget(QWidget):
         highlight_color = QColor(self.theme.keyboard_highlight)
         error_color = QColor(self.theme.keyboard_error)
 
-        # Draw background
-        painter.fillRect(self.rect(), bg_color)
+        painter.fillRect(dirty, bg_color)
 
-        # Draw each row
         for row in self.KEYBOARD_LAYOUT:
             x = start_x
             for key_label, width_mult in row:
                 key_width = key_unit_width * width_mult - key_spacing
-                
-                # Determine key character
                 key_char = self.KEY_CHAR_MAP.get(key_label, key_label.lower())
-                
-                # Determine key color
-                is_next = (self.next_key.lower() == key_char.lower() if self.next_key else False)
-                is_error = (self.error_key.lower() == key_char.lower() if self.error_key else False)
+                key_rect = QRect(int(x), int(y), int(key_width), int(key_height))
+                if not dirty.intersects(key_rect.adjusted(-2, -2, 2, 2)):
+                    x += key_width + key_spacing
+                    continue
+
+                is_next = self.next_key.lower() == key_char.lower() if self.next_key else False
+                is_error = self.error_key.lower() == key_char.lower() if self.error_key else False
                 
                 if is_next:
                     fill_color = highlight_color

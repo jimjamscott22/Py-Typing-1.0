@@ -2,7 +2,7 @@ import csv
 from datetime import datetime
 from typing import List
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -68,6 +68,8 @@ class StatisticsDialog(QDialog):
         self.setWindowTitle("📊 Typing Statistics")
         self.setMinimumSize(700, 550)
         self._built_tabs: set[int] = set()
+        self._building_tabs: set[int] = set()
+        self._chart_cache: dict[tuple, object] = {}
         self._tab_specs = [
             ("📈 Overview", self._create_overview_tab),
             ("📊 Progress", self._create_progress_tab),
@@ -105,17 +107,49 @@ class StatisticsDialog(QDialog):
 
     def _ensure_tab_built(self, index: int) -> None:
         """Lazy-load tab content on first visit."""
-        if index < 0 or index in self._built_tabs:
+        if index < 0 or index in self._built_tabs or index in self._building_tabs:
+            return
+
+        self._building_tabs.add(index)
+        title, _ = self._tab_specs[index]
+        old = self._tabs.widget(index)
+
+        loading = QWidget()
+        loading_layout = QVBoxLayout(loading)
+        loading_label = QLabel("Loading…")
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_layout.addWidget(loading_label)
+
+        self._tabs.removeTab(index)
+        self._tabs.insertTab(index, loading, title)
+        if old is not None:
+            old.deleteLater()
+
+        QTimer.singleShot(0, lambda idx=index: self._finish_tab_build(idx))
+
+    def _finish_tab_build(self, index: int) -> None:
+        """Build a statistics tab after yielding to the event loop."""
+        if index in self._built_tabs:
+            self._building_tabs.discard(index)
             return
 
         title, builder = self._tab_specs[index]
         widget = builder()
-        old = self._tabs.widget(index)
         self._tabs.removeTab(index)
         self._tabs.insertTab(index, widget, title)
-        if old is not None:
-            old.deleteLater()
+        self._building_tabs.discard(index)
         self._built_tabs.add(index)
+
+    def _chart_cache_key(self, chart_id: str, *, extra: str = "") -> tuple:
+        history = self.progress_store.get_session_history()
+        theme = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        last_ts = history[-1].get("timestamp", "") if history else ""
+        return (chart_id, theme, len(history), last_ts, extra)
+
+    def _get_cached_chart(self, cache_key: tuple, builder) -> object:
+        if cache_key not in self._chart_cache:
+            self._chart_cache[cache_key] = builder()
+        return self._chart_cache[cache_key]
 
     def _create_overview_tab(self) -> QWidget:
         """Create the overview statistics tab."""
@@ -200,7 +234,10 @@ class StatisticsDialog(QDialog):
         progress_layout = QVBoxLayout(progress_group)
         
         progress_chart_label = QLabel()
-        progress_pixmap = create_combined_progress_chart(history, theme, max_sessions=20)
+        progress_pixmap = self._get_cached_chart(
+            self._chart_cache_key("combined_progress"),
+            lambda: create_combined_progress_chart(history, theme, max_sessions=20),
+        )
         if not progress_pixmap.isNull():
             progress_chart_label.setPixmap(progress_pixmap)
             progress_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -216,7 +253,10 @@ class StatisticsDialog(QDialog):
         lesson_layout = QVBoxLayout(lesson_group)
         
         lesson_chart_label = QLabel()
-        lesson_pixmap = create_lesson_performance_chart(history, theme)
+        lesson_pixmap = self._get_cached_chart(
+            self._chart_cache_key("lesson_performance"),
+            lambda: create_lesson_performance_chart(history, theme),
+        )
         if not lesson_pixmap.isNull():
             lesson_chart_label.setPixmap(lesson_pixmap)
             lesson_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -483,11 +523,18 @@ class StatisticsDialog(QDialog):
         heatmap_layout = QVBoxLayout(heatmap_group)
 
         heatmap_label = QLabel()
-        heatmap_pixmap = create_keyboard_heatmap(
-            display_stats,
-            theme,
-            metric_label=metric_label,
-            value_suffix=value_suffix,
+        heatmap_cache_key = self._chart_cache_key(
+            "keyboard_heatmap",
+            extra=f"{metric_label}:{sorted(display_stats.items())!r}",
+        )
+        heatmap_pixmap = self._get_cached_chart(
+            heatmap_cache_key,
+            lambda: create_keyboard_heatmap(
+                display_stats,
+                theme,
+                metric_label=metric_label,
+                value_suffix=value_suffix,
+            ),
         )
         if not heatmap_pixmap.isNull():
             heatmap_label.setPixmap(heatmap_pixmap)
@@ -502,7 +549,14 @@ class StatisticsDialog(QDialog):
         finger_layout = QVBoxLayout(finger_group)
 
         finger_chart_label = QLabel()
-        finger_pixmap = create_finger_error_chart(key_error_stats, theme)
+        finger_cache_key = self._chart_cache_key(
+            "finger_errors",
+            extra=str(sorted(key_error_stats.items())),
+        )
+        finger_pixmap = self._get_cached_chart(
+            finger_cache_key,
+            lambda: create_finger_error_chart(key_error_stats, theme),
+        )
         if not finger_pixmap.isNull():
             finger_chart_label.setPixmap(finger_pixmap)
         else:
@@ -566,7 +620,10 @@ class StatisticsDialog(QDialog):
         trends_layout = QVBoxLayout(trends_group)
 
         trends_label = QLabel()
-        trends_pixmap = create_error_timeseries_chart(timeseries, theme)
+        trends_pixmap = self._get_cached_chart(
+            self._chart_cache_key("error_timeseries"),
+            lambda: create_error_timeseries_chart(timeseries, theme),
+        )
         if not trends_pixmap.isNull():
             trends_label.setPixmap(trends_pixmap)
         else:
