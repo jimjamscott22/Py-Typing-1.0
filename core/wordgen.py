@@ -66,6 +66,19 @@ DEVELOPER_CODE_TOKENS: List[str] = [
 DEVELOPER_TOKENS: List[str] = DEVELOPER_SYMBOL_TOKENS + DEVELOPER_CODE_TOKENS
 
 
+def timed_word_count(duration_seconds: int, base_count: int = 25, peak_wpm: int = 80) -> int:
+    """Return a word budget long enough to fill a timed drill.
+
+    Uses a peak-WPM estimate plus a buffer so typical typists do not finish
+    the text before the countdown expires.
+    """
+    if duration_seconds <= 0:
+        return max(0, base_count)
+    minutes = duration_seconds / 60
+    # 1.5× buffer keeps runway for fast typists and mid-session extensions.
+    return max(base_count, int(peak_wpm * minutes * 1.5))
+
+
 def generate_adaptive_text(weak_keys: List[str], word_count: int = 25) -> str:
     """Generate words weighted toward keys the user struggles with.
 

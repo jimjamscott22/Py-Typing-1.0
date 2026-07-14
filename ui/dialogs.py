@@ -812,7 +812,8 @@ class SettingsDialog(QDialog):
                 self.timed_mode_combo.setCurrentIndex(index)
                 break
         self.timed_mode_combo.setToolTip(
-            "Countdown timer starts on first keystroke; session ends when time expires"
+            "Countdown starts on first keystroke. Random/Developer drills generate "
+            "enough text for the full duration; session ends when time expires."
         )
         timed_layout.addRow("Duration:", self.timed_mode_combo)
         layout.addWidget(timed_group)

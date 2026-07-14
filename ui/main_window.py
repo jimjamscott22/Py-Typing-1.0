@@ -22,7 +22,12 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession, SessionRecord
 from core.persistence import ProgressStore
 from core.lessons import build_lessons
-from core.wordgen import generate_text, generate_developer_text, generate_adaptive_text
+from core.wordgen import (
+    generate_text,
+    generate_developer_text,
+    generate_adaptive_text,
+    timed_word_count,
+)
 from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
@@ -437,7 +442,7 @@ class TypingPracticeApp(QMainWindow):
         self.keyboard_toggle.setText("⌨️ Hide Keyboard" if visible else "⌨️ Show Keyboard")
         self.progress_store.set_setting("show_keyboard", visible)
 
-    def _apply_settings(self) -> None:
+    def _apply_settings(self, *, refresh_generated: bool = False) -> None:
         """Apply saved settings to the UI."""
         self._backspace_penalty = self.progress_store.get_setting(
             "backspace_penalty", DEFAULT_BACKSPACE_PENALTY
@@ -473,12 +478,19 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
 
-        # Refresh the active developer drill if the settings changed.
-        if self.mode == "lesson" and self.lessons:
+        # Refresh generated drills only after Settings save (not on startup).
+        if refresh_generated and self.mode == "lesson" and self.lessons:
             current_lesson = self.lessons[self.current_lesson_index]
-            if current_lesson.title == "Developer Keys":
+            generated_kind = self._get_generated_lesson_kind(
+                current_lesson, current_lesson.texts[0] if current_lesson.texts else ""
+            )
+            if generated_kind == "developer":
                 self.current_target_text = ""
                 self.progress_store.clear_developer_text(self.current_lesson_index)
+                self.load_current_text()
+            elif generated_kind == "random":
+                self.current_target_text = ""
+                self.progress_store.clear_random_text(self.current_lesson_index)
                 self.load_current_text()
 
     def _apply_theme(self) -> None:
@@ -705,12 +717,22 @@ class TypingPracticeApp(QMainWindow):
             persisted = self.progress_store.get_developer_text(self.current_lesson_index)
             current_length = self._developer_keys_length()
             current_mode = self._developer_keys_mode()
+            needed = self._timed_word_budget(current_length)
             if isinstance(persisted, dict):
                 persisted_text = persisted.get("text")
                 if (
                     isinstance(persisted_text, str)
-                    and persisted.get("token_count") == current_length
                     and persisted.get("mode") == current_mode
+                    and (
+                        (
+                            self._timed_mode_seconds <= 0
+                            and persisted.get("token_count") == current_length
+                        )
+                        or (
+                            self._timed_mode_seconds > 0
+                            and len(persisted_text.split()) >= needed
+                        )
+                    )
                 ):
                     return persisted_text
 
@@ -718,14 +740,18 @@ class TypingPracticeApp(QMainWindow):
             self.progress_store.set_developer_text(
                 self.current_lesson_index,
                 generated_text,
-                token_count=current_length,
+                token_count=needed if self._timed_mode_seconds > 0 else current_length,
                 mode=current_mode,
             )
             return generated_text
 
         persisted = self.progress_store.get_random_text(self.current_lesson_index)
         if persisted:
-            return persisted
+            needed = self._timed_word_budget(
+                self.progress_store.get_setting("random_word_count", DEFAULT_RANDOM_WORD_COUNT)
+            )
+            if self._timed_mode_seconds <= 0 or len(persisted.split()) >= needed:
+                return persisted
 
         generated_text = self._generate_practice_text(generated_kind)
         self.progress_store.set_random_text(self.current_lesson_index, generated_text)
@@ -736,6 +762,46 @@ class TypingPracticeApp(QMainWindow):
 
     def _developer_keys_mode(self) -> str:
         return self.progress_store.get_setting("developer_keys_mode", DEFAULT_DEVELOPER_KEYS_MODE)
+
+    def _timed_word_budget(self, base_count: int) -> int:
+        """Word/token count long enough to fill the configured timed duration."""
+        return timed_word_count(self._timed_mode_seconds, base_count)
+
+    def _active_generated_kind(self) -> Optional[str]:
+        if self.mode != "lesson" or not self.lessons:
+            return None
+        lesson = self.lessons[self.current_lesson_index]
+        candidate = lesson.texts[self.current_text_index] if lesson.texts else ""
+        return self._get_generated_lesson_kind(lesson, candidate)
+
+    def _extend_timed_target(self, chunk_size: int = 40) -> None:
+        """Append more generated text so a timed drill never runs out of runway."""
+        kind = self._active_generated_kind()
+        if not kind:
+            return
+
+        if kind == "random":
+            if self._adaptive_drills:
+                errors = self.progress_store.get_key_error_stats()
+                attempts = self.progress_store.get_key_attempt_stats()
+                recommendations = get_practice_recommendations(
+                    errors, attempts, min_attempts=5, top_n=5
+                )
+                weak_keys = [key for key, _, _, _ in recommendations]
+                if weak_keys:
+                    extra = generate_adaptive_text(weak_keys, chunk_size)
+                else:
+                    extra = generate_text(chunk_size)
+            else:
+                extra = generate_text(chunk_size)
+        else:
+            extra = generate_developer_text(chunk_size, self._developer_keys_mode())
+
+        if not extra:
+            return
+
+        separator = " " if self.current_target_text and not self.current_target_text.endswith(" ") else ""
+        self.current_target_text = f"{self.current_target_text}{separator}{extra}"
 
     def reset_exercise(self) -> None:
         """Clear typing data and reset statistics."""
@@ -779,12 +845,20 @@ class TypingPracticeApp(QMainWindow):
             self._pending_display_update = True
             QTimer.singleShot(0, self._flush_display)
 
+        if self._timed_mode_active and self._active_generated_kind():
+            remaining = len(self.current_target_text) - len(self.session.typed_text)
+            if remaining <= 40:
+                self._extend_timed_target()
+
         if (
             not self._round_complete
             and self.session.typed_text == self.current_target_text
             and self.current_target_text
         ):
-            self.on_completion()
+            if self._timed_mode_active and self._active_generated_kind():
+                self._extend_timed_target()
+            else:
+                self.on_completion()
 
     def _flush_display(self) -> None:
         """Deferred display refresh — called once per event-loop cycle regardless of keystroke count."""
@@ -1013,6 +1087,17 @@ class TypingPracticeApp(QMainWindow):
         )
 
     def _update_progress_indicators(self, typed: str, target: str) -> None:
+        if (
+            self._timed_mode_active
+            and self._timed_mode_seconds > 0
+            and self._timed_seconds_remaining is not None
+        ):
+            elapsed_fraction = 1.0 - (self._timed_seconds_remaining / self._timed_mode_seconds)
+            progress = min(100, max(0, int(elapsed_fraction * 100)))
+            self.progress_label.setText(f"Timed: {progress}%")
+            self.progress_bar.setValue(progress)
+            return
+
         if not target:
             self.progress_label.setText("Progress: 0%")
             self.progress_bar.setValue(0)
@@ -1027,9 +1112,10 @@ class TypingPracticeApp(QMainWindow):
 
     def _generate_practice_text(self, generated_kind: str) -> str:
         if generated_kind == "random":
-            word_count = self.progress_store.get_setting(
+            base_count = self.progress_store.get_setting(
                 "random_word_count", DEFAULT_RANDOM_WORD_COUNT
             )
+            word_count = self._timed_word_budget(base_count)
             if self._adaptive_drills:
                 errors = self.progress_store.get_key_error_stats()
                 attempts = self.progress_store.get_key_attempt_stats()
@@ -1041,13 +1127,19 @@ class TypingPracticeApp(QMainWindow):
                     return generate_adaptive_text(weak_keys, word_count)
             return generate_text(word_count)
         if generated_kind == "developer":
-            return generate_developer_text(self._developer_keys_length(), self._developer_keys_mode())
+            token_count = self._timed_word_budget(self._developer_keys_length())
+            return generate_developer_text(token_count, self._developer_keys_mode())
         return ""
 
     def _start_timed_mode_if_enabled(self) -> None:
         if self._timed_mode_seconds <= 0:
             self.timer_label.setVisible(False)
             return
+        # Ensure generated drills have enough runway before the clock starts.
+        if self._active_generated_kind():
+            remaining = len(self.current_target_text) - len(self.session.typed_text)
+            if remaining < 80:
+                self._extend_timed_target(chunk_size=max(40, self._timed_word_budget(40)))
         self._timed_seconds_remaining = float(self._timed_mode_seconds)
         self._timed_mode_active = True
         self.timer_label.setVisible(True)
@@ -1073,6 +1165,7 @@ class TypingPracticeApp(QMainWindow):
             return
         self._timed_seconds_remaining -= 1
         self._update_timer_label()
+        self._update_progress_indicators(self.session.typed_text, self.current_target_text)
         if self._timed_seconds_remaining <= 0:
             self._stop_timed_mode()
             self.on_timed_completion()
@@ -1264,5 +1357,5 @@ class TypingPracticeApp(QMainWindow):
     def _show_settings(self) -> None:
         """Show the settings dialog."""
         dialog = SettingsDialog(self.progress_store, self)
-        dialog.settings_changed.connect(self._apply_settings)
+        dialog.settings_changed.connect(lambda: self._apply_settings(refresh_generated=True))
         dialog.exec()

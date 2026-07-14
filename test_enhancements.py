@@ -9,7 +9,7 @@ import pytest
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.models import SessionRecord
 from core.persistence import ProgressStore
-from core.wordgen import generate_adaptive_text, generate_text
+from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 
 
 @pytest.fixture
@@ -124,3 +124,15 @@ class TestWordgen:
     def test_generate_adaptive_fallback_without_keys(self):
         text = generate_adaptive_text([], word_count=10)
         assert len(text.split()) == 10
+
+    def test_timed_word_count_off_uses_base(self):
+        assert timed_word_count(0, base_count=25) == 25
+
+    def test_timed_word_count_scales_with_duration(self):
+        # 60s @ 80 WPM * 1.5 = 120 words
+        assert timed_word_count(60, base_count=25) == 120
+        assert timed_word_count(120, base_count=25) == 240
+        assert timed_word_count(300, base_count=25) == 600
+
+    def test_timed_word_count_respects_higher_base(self):
+        assert timed_word_count(60, base_count=150) == 150
