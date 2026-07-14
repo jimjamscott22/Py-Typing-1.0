@@ -49,6 +49,15 @@ def build_main_stylesheet(theme: Theme) -> str:
         QGroupBox {{
             color: {theme.text_primary};
             border: 1px solid {theme.button_border};
+            border-radius: 4px;
+            margin-top: 1.2em;
+            padding-top: 0.6em;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 8px;
+            padding: 0 4px;
         }}
     """
 
