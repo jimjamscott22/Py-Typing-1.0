@@ -6,6 +6,7 @@ import wave
 import math
 import tempfile
 import platform
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -24,31 +25,52 @@ else:
 
 
 class CelebrationSound(QObject):
-    """Generates and plays a celebratory melody for perfect typing rounds."""
+    """Generates and randomly plays celebratory perfect-round melodies."""
+
+    MELODIES = (
+        (
+            (523.25, 0.10), (659.25, 0.10), (783.99, 0.10),
+            (1046.50, 0.15), (0, 0.05), (783.99, 0.10),
+            (1046.50, 0.25), (1318.51, 0.08), (1567.98, 0.08),
+            (2093.00, 0.20),
+        ),
+        (
+            (659.25, 0.09), (783.99, 0.09), (987.77, 0.09),
+            (1318.51, 0.18), (0, 0.04), (987.77, 0.08),
+            (1174.66, 0.08), (1318.51, 0.24),
+        ),
+        (
+            (392.00, 0.11), (523.25, 0.11), (659.25, 0.11),
+            (783.99, 0.16), (659.25, 0.08), (783.99, 0.08),
+            (1046.50, 0.28),
+        ),
+        (
+            (1046.50, 0.08), (1318.51, 0.08), (1567.98, 0.08),
+            (2093.00, 0.12), (1567.98, 0.08), (2093.00, 0.12),
+            (2637.02, 0.22),
+        ),
+    )
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._player: Optional[QMediaPlayer] = None
         self._audio_output: Optional[QAudioOutput] = None
-        self._temp_file: Optional[Path] = None
+        self._temp_files: dict[int, Path] = {}
+        self._last_melody_index: Optional[int] = None
         self._initialized = False
 
     def _ensure_initialized(self) -> bool:
-        """Lazily initialize the audio player and generate the sound file."""
+        """Lazily initialize the audio player."""
         if self._initialized:
             return self._player is not None
 
         try:
-            # Generate the celebration sound file
-            self._temp_file = self._generate_celebration_melody()
-            
             # Set up the media player
             self._player = QMediaPlayer(self)
             self._audio_output = QAudioOutput(self)
             self._audio_output.setVolume(0.5)  # 50% volume
             self._player.setAudioOutput(self._audio_output)
-            self._player.setSource(QUrl.fromLocalFile(str(self._temp_file)))
-            
+
             self._initialized = True
             return True
         except Exception:
@@ -56,14 +78,18 @@ class CelebrationSound(QObject):
             return False
 
     def play(self) -> None:
-        """Play the celebration sound."""
+        """Play a random celebration sound without immediately repeating one."""
+        melody_index = self._choose_melody_index()
+        try:
+            sound_file = self._sound_file(melody_index)
+        except Exception:
+            return
+
         # Try using winsound first on Windows
         if HAS_WINSOUND:
             try:
-                if not hasattr(self, '_temp_file') or self._temp_file is None:
-                    self._temp_file = self._generate_celebration_melody()
                 # Use SND_ASYNC to play asynchronously without blocking
-                winsound.PlaySound(str(self._temp_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                winsound.PlaySound(str(sound_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
                 return
             except Exception:
                 pass
@@ -74,39 +100,37 @@ class CelebrationSound(QObject):
         
         if self._player:
             self._player.stop()
-            self._player.setPosition(0)
+            self._player.setSource(QUrl.fromLocalFile(str(sound_file)))
             self._player.play()
+
+    def _choose_melody_index(self) -> int:
+        """Choose a melody, excluding the previously played one when possible."""
+        choices = [
+            index
+            for index in range(len(self.MELODIES))
+            if index != self._last_melody_index
+        ]
+        selected = random.choice(choices)
+        self._last_melody_index = selected
+        return selected
+
+    def _sound_file(self, melody_index: int) -> Path:
+        """Return a cached WAV path, generating it on first use."""
+        if melody_index not in self._temp_files:
+            self._temp_files[melody_index] = self._generate_celebration_melody(
+                melody_index
+            )
+        return self._temp_files[melody_index]
 
     def set_volume(self, volume: float) -> None:
         """Set the volume (0.0 to 1.0)."""
         if self._audio_output:
             self._audio_output.setVolume(max(0.0, min(1.0, volume)))
 
-    def _generate_celebration_melody(self) -> Path:
+    def _generate_celebration_melody(self, melody_index: int = 0) -> Path:
         """Generate a short celebratory victory jingle as a WAV file."""
         sample_rate = 44100
-        
-        # Define a cheerful victory melody (note, duration in seconds)
-        # Using a major key ascending pattern that sounds triumphant
-        melody = [
-            # Quick ascending arpeggio
-            (523.25, 0.1),   # C5
-            (659.25, 0.1),   # E5
-            (783.99, 0.1),   # G5
-            (1046.50, 0.15), # C6 (hold slightly)
-            
-            # Short pause
-            (0, 0.05),
-            
-            # Triumphant finish
-            (783.99, 0.1),   # G5
-            (1046.50, 0.25), # C6 (victory note - hold longer)
-            
-            # Sparkle ending
-            (1318.51, 0.08), # E6
-            (1567.98, 0.08), # G6
-            (2093.00, 0.2),  # C7 (high sparkle)
-        ]
+        melody = self.MELODIES[melody_index]
         
         # Generate audio samples
         samples = []
@@ -148,7 +172,7 @@ class CelebrationSound(QObject):
         
         # Create WAV file in temp directory
         temp_dir = Path(tempfile.gettempdir())
-        wav_path = temp_dir / "typing_celebration.wav"
+        wav_path = temp_dir / f"typing_celebration_{melody_index}.wav"
         
         with wave.open(str(wav_path), 'w') as wav_file:
             wav_file.setnchannels(1)  # Mono
