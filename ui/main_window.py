@@ -47,7 +47,9 @@ from core.constants import (
     DEFAULT_ADAPTIVE_DRILLS,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
+    WARMUP_DESCRIPTION,
 )
+from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
 from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
 from ui.dialogs import StatisticsDialog, SettingsDialog
@@ -66,6 +68,8 @@ class TypingPracticeApp(QMainWindow):
 
         self.lesson_offset = 1
         self.mode = "lesson"
+        self.warmup_mode = False
+        self._pre_warmup_state: dict | None = None
         self._previous_typed_length = 0  # Track for backspace detection
         self._key_stats_recorded_length = 0  # How much of typed_text has already been counted for key stats
         self._pending_display_update = False  # Guard for deferred display refresh
@@ -512,6 +516,8 @@ class TypingPracticeApp(QMainWindow):
         if self.mode == "lesson":
             lesson = self.lessons[self.current_lesson_index]
             self._update_description(f"<b>Focus:</b> {lesson.description}", mode="default")
+        elif self.mode == "warmup":
+            self._update_description(WARMUP_DESCRIPTION, mode="default")
         else:
             self._update_description(FREE_PRACTICE_DESCRIPTION, mode="default")
 
@@ -824,6 +830,8 @@ class TypingPracticeApp(QMainWindow):
         if self.mode == "lesson":
             lesson_desc = self.lessons[self.current_lesson_index].description
             self._update_description(f"<b>Focus:</b> {lesson_desc}", mode="default")
+        elif self.mode == "warmup":
+            self._update_description(WARMUP_DESCRIPTION, mode="default")
         else:
             self._update_description(FREE_PRACTICE_DESCRIPTION, mode="default")
 
@@ -1132,6 +1140,8 @@ class TypingPracticeApp(QMainWindow):
         return ""
 
     def _start_timed_mode_if_enabled(self) -> None:
+        if self.mode == "warmup":
+            return
         if self._timed_mode_seconds <= 0:
             self.timer_label.setVisible(False)
             return
