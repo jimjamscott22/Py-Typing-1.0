@@ -1,22 +1,41 @@
 """Tests for persistence, analytics, and word generation."""
 
+import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtWidgets import QApplication
+
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.models import SessionRecord
 from core.persistence import ProgressStore
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 from core.warmup import WARMUP_PHRASES, get_warmup_text
+from ui.main_window import TypingPracticeApp
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> ProgressStore:
     progress_path = tmp_path / "typing_progress.json"
     return ProgressStore(progress_path)
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def window(qapp, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    win = TypingPracticeApp()
+    yield win
+    win.close()
 
 
 class TestProgressStore:
@@ -149,3 +168,58 @@ class TestWarmup:
         for _ in range(20):
             second = get_warmup_text(exclude=first)
             assert second != first
+
+
+class TestWarmupToggle:
+    def test_enter_warmup_sets_mode_and_disables_controls(self, window):
+        window._toggle_warmup_mode(True)
+        assert window.mode == "warmup"
+        assert window.warmup_mode is True
+        assert not window.lesson_list.isEnabled()
+        assert not window.free_controls.isEnabled()
+
+    def test_exit_warmup_restores_previous_lesson(self, window):
+        window.load_lesson(1, reset_text_index=False)
+        prior_index = window.current_lesson_index
+
+        window._toggle_warmup_mode(True)
+        assert window.mode == "warmup"
+
+        window._toggle_warmup_mode(False)
+        assert window.mode == "lesson"
+        assert window.warmup_mode is False
+        assert window.current_lesson_index == prior_index
+        assert window.lesson_list.isEnabled()
+
+    def test_completing_warmup_round_does_not_persist(self, window, monkeypatch):
+        added = []
+        saved = []
+        monkeypatch.setattr(
+            window.progress_store, "add_session_record", lambda record: added.append(record)
+        )
+        monkeypatch.setattr(window.progress_store, "save", lambda: saved.append(True))
+
+        window._toggle_warmup_mode(True)
+        target = window.current_target_text
+        window.typing_input.setPlainText(target)
+
+        assert added == []
+        assert saved == []
+
+    def test_normal_completion_still_persists_after_exiting_warmup(self, window, monkeypatch):
+        added = []
+        saved = []
+        monkeypatch.setattr(
+            window.progress_store, "add_session_record", lambda record: added.append(record)
+        )
+        monkeypatch.setattr(window.progress_store, "save", lambda: saved.append(True))
+
+        window._toggle_warmup_mode(True)
+        window._toggle_warmup_mode(False)
+        assert window.mode == "lesson"
+
+        target = window.current_target_text
+        window.typing_input.setPlainText(target)
+
+        assert len(added) == 1
+        assert saved

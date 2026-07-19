@@ -199,6 +199,14 @@ class TypingPracticeApp(QMainWindow):
         self.settings_button.setToolTip("Configure app settings and penalties")
         button_layout.addWidget(self.settings_button)
 
+        self.warmup_button = QPushButton("🔥 Warmup")
+        self.warmup_button.setCheckable(True)
+        self.warmup_button.clicked.connect(self._toggle_warmup_mode)
+        self.warmup_button.setToolTip(
+            "Practice freely without recording your typing history or stats"
+        )
+        button_layout.addWidget(self.warmup_button)
+
         layout.addWidget(button_container)
 
         return sidebar
@@ -1229,44 +1237,45 @@ class TypingPracticeApp(QMainWindow):
 
         self._update_description(completion_msg, mode="success")
 
-        lesson_name = (
-            self.lessons[self.current_lesson_index].title
-            if self.mode == "lesson" else "Free Practice"
-        )
-        record = SessionRecord(
-            timestamp=datetime.now().isoformat(),
-            lesson_index=self.current_lesson_index if self.mode == "lesson" else -1,
-            text_index=self.current_text_index,
-            lesson_name=lesson_name,
-            wpm=wpm,
-            accuracy=round(accuracy, 1),
-            errors=self.session.errors + max(
-                len(self.session.typed_text) - len(self.current_target_text), 0
-            ),
-            backspaces=backspace_count,
-            duration_seconds=round(elapsed_time, 1),
-            text_length=len(self.session.typed_text) if timed_out else len(self.current_target_text),
-        )
-        self.progress_store.add_session_record(record)
-
-        if self.session.key_errors:
-            self.progress_store.update_key_error_stats(self.session.key_errors)
-        if self.session.key_attempts:
-            self.progress_store.update_key_attempt_stats(self.session.key_attempts)
-
-        if self.session.key_errors:
-            self.progress_store.add_session_key_stats(
-                record.timestamp,
-                record.lesson_index,
-                lesson_name,
-                self.session.key_errors,
-                self.session.key_attempts,
+        if not self.warmup_mode:
+            lesson_name = (
+                self.lessons[self.current_lesson_index].title
+                if self.mode == "lesson" else "Free Practice"
             )
+            record = SessionRecord(
+                timestamp=datetime.now().isoformat(),
+                lesson_index=self.current_lesson_index if self.mode == "lesson" else -1,
+                text_index=self.current_text_index,
+                lesson_name=lesson_name,
+                wpm=wpm,
+                accuracy=round(accuracy, 1),
+                errors=self.session.errors + max(
+                    len(self.session.typed_text) - len(self.current_target_text), 0
+                ),
+                backspaces=backspace_count,
+                duration_seconds=round(elapsed_time, 1),
+                text_length=len(self.session.typed_text) if timed_out else len(self.current_target_text),
+            )
+            self.progress_store.add_session_record(record)
 
-        if self.mode == "lesson":
-            self._record_best_wpm(wpm)
+            if self.session.key_errors:
+                self.progress_store.update_key_error_stats(self.session.key_errors)
+            if self.session.key_attempts:
+                self.progress_store.update_key_attempt_stats(self.session.key_attempts)
 
-        self.progress_store.save()
+            if self.session.key_errors:
+                self.progress_store.add_session_key_stats(
+                    record.timestamp,
+                    record.lesson_index,
+                    lesson_name,
+                    self.session.key_errors,
+                    self.session.key_attempts,
+                )
+
+            if self.mode == "lesson":
+                self._record_best_wpm(wpm)
+
+            self.progress_store.save()
 
         if (
             not timed_out
@@ -1275,7 +1284,10 @@ class TypingPracticeApp(QMainWindow):
             self.celebration_overlay.start()
             CelebrationSoundManager.play()
 
-        QTimer.singleShot(2000, self._unlock_text_input)
+        if self.warmup_mode:
+            QTimer.singleShot(2000, self._advance_warmup_round)
+        else:
+            QTimer.singleShot(2000, self._unlock_text_input)
 
     def _record_best_wpm(self, wpm: int) -> None:
         lesson_key = str(self.current_lesson_index)
@@ -1369,3 +1381,54 @@ class TypingPracticeApp(QMainWindow):
         dialog = SettingsDialog(self.progress_store, self)
         dialog.settings_changed.connect(lambda: self._apply_settings(refresh_generated=True))
         dialog.exec()
+
+    def _toggle_warmup_mode(self, checked: bool) -> None:
+        """Enter or exit warmup mode from the sidebar toggle button."""
+        if checked:
+            self._enter_warmup_mode()
+        else:
+            self._exit_warmup_mode()
+
+    def _enter_warmup_mode(self) -> None:
+        """Snapshot current state and switch into a non-recording warmup drill."""
+        self._pre_warmup_state = {
+            "mode": self.mode,
+            "lesson_index": self.current_lesson_index,
+            "text_index": self.current_text_index,
+        }
+        self.warmup_mode = True
+        self.mode = "warmup"
+        self.lesson_list.setEnabled(False)
+        self.free_controls.setEnabled(False)
+        self.regenerate_button.setEnabled(False)
+        self.next_button.setEnabled(False)
+        self.warmup_button.setChecked(True)
+        self.lesson_title.setText("🔥 Warmup")
+        self._update_best_wpm_label()
+        self.current_target_text = get_warmup_text()
+        self.target_text.setText(self.current_target_text)
+        self.reset_exercise()
+
+    def _exit_warmup_mode(self) -> None:
+        """Leave warmup mode and restore whichever lesson/free-practice state preceded it."""
+        previous = self._pre_warmup_state
+        self.warmup_mode = False
+        self.warmup_button.setChecked(False)
+        self.lesson_list.setEnabled(True)
+        self.free_controls.setEnabled(True)
+        self.regenerate_button.setEnabled(True)
+
+        if previous is None or previous["mode"] == "free":
+            self._enter_free_practice()
+            return
+
+        self.current_text_index = previous["text_index"]
+        self.load_lesson(previous["lesson_index"], reset_text_index=False)
+
+    def _advance_warmup_round(self) -> None:
+        """Auto-load the next warmup phrase after a completed round."""
+        if not self.warmup_mode:
+            return
+        self.current_target_text = get_warmup_text(exclude=self.current_target_text)
+        self.target_text.setText(self.current_target_text)
+        self.reset_exercise()
