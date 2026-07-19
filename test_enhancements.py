@@ -10,6 +10,7 @@ from core.analytics import compute_streaks, get_practice_recommendations
 from core.models import SessionRecord
 from core.persistence import ProgressStore
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
+from core.warmup import WARMUP_PHRASES, get_warmup_text
 
 
 @pytest.fixture
@@ -136,3 +137,15 @@ class TestWordgen:
 
     def test_timed_word_count_respects_higher_base(self):
         assert timed_word_count(60, base_count=150) == 150
+
+
+class TestWarmup:
+    def test_get_warmup_text_returns_known_phrase(self):
+        text = get_warmup_text()
+        assert text in WARMUP_PHRASES
+
+    def test_get_warmup_text_avoids_immediate_repeat(self):
+        first = get_warmup_text()
+        for _ in range(20):
+            second = get_warmup_text(exclude=first)
+            assert second != first

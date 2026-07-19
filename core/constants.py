@@ -27,6 +27,10 @@ FREE_PRACTICE_DESCRIPTION = (
 )
 FREE_PRACTICE_PLACEHOLDER = "Provide custom text or import a file to begin."
 
+WARMUP_DESCRIPTION = (
+    "🔥 Warmup mode: loosen up your fingers. Nothing typed here is recorded to your history or stats."
+)
+
 # Finger color mapping for keyboard visualization
 FINGER_COLORS = {
     "left_pinky": "#e57373",    # Red
