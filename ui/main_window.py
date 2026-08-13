@@ -32,6 +32,7 @@ from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
 from core.analytics import get_practice_recommendations
+from core.achievements import ACHIEVEMENTS_BY_ID, build_achievement_progress
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -52,7 +53,7 @@ from core.constants import (
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
 from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
-from ui.dialogs import StatisticsDialog, SettingsDialog
+from ui.dialogs import AchievementsDialog, StatisticsDialog, SettingsDialog
 from ui.styles import (
     build_main_stylesheet,
     build_target_text_style,
@@ -101,6 +102,7 @@ class TypingPracticeApp(QMainWindow):
         self.progress_store = ProgressStore(progress_path)
 
         self.lessons = build_lessons()
+        self._sync_achievements()
         self.session = TypingSession()
 
         self.best_wpm = BestWpmTracker.from_raw(self.progress_store.data.get("best_wpm"))
@@ -193,6 +195,11 @@ class TypingPracticeApp(QMainWindow):
         self.stats_button.clicked.connect(self._show_statistics)
         self.stats_button.setToolTip("View your typing progress and statistics")
         button_layout.addWidget(self.stats_button)
+
+        self.achievements_button = QPushButton("🏅 Achievements")
+        self.achievements_button.clicked.connect(self._show_achievements)
+        self.achievements_button.setToolTip("View unlocked badges and milestone progress")
+        button_layout.addWidget(self.achievements_button)
 
         self.settings_button = QPushButton("⚙️ Settings")
         self.settings_button.clicked.connect(self._show_settings)
@@ -1233,9 +1240,7 @@ class TypingPracticeApp(QMainWindow):
         if backspace_count > 0:
             completion_msg += f" (penalty: -{wpm_penalty} WPM)"
 
-        completion_msg += "\n\nPress Space to continue ➡️"
-
-        self._update_description(completion_msg, mode="success")
+        newly_unlocked_ids: List[str] = []
 
         if not self.warmup_mode:
             lesson_name = (
@@ -1258,6 +1263,13 @@ class TypingPracticeApp(QMainWindow):
             )
             self.progress_store.add_session_record(record)
 
+            if self.mode == "lesson" and not timed_out:
+                self.progress_store.mark_lesson_text_completed(
+                    self.current_lesson_index,
+                    self.current_text_index,
+                    record.timestamp,
+                )
+
             if self.session.key_errors:
                 self.progress_store.update_key_error_stats(self.session.key_errors)
             if self.session.key_attempts:
@@ -1275,7 +1287,19 @@ class TypingPracticeApp(QMainWindow):
             if self.mode == "lesson":
                 self._record_best_wpm(wpm)
 
+            newly_unlocked_ids = self._sync_achievements()
             self.progress_store.save()
+
+        if newly_unlocked_ids:
+            badge_lines = [
+                f"{ACHIEVEMENTS_BY_ID[badge_id].icon} {ACHIEVEMENTS_BY_ID[badge_id].name}"
+                for badge_id in newly_unlocked_ids
+                if badge_id in ACHIEVEMENTS_BY_ID
+            ]
+            completion_msg += "\n\n🏅 New badge unlocked!\n" + "\n".join(badge_lines)
+
+        completion_msg += "\n\nPress Space to continue ➡️"
+        self._update_description(completion_msg, mode="success")
 
         if (
             not timed_out
@@ -1375,6 +1399,33 @@ class TypingPracticeApp(QMainWindow):
         """Show the statistics dialog."""
         dialog = StatisticsDialog(self.progress_store, self.lessons, self)
         dialog.exec()
+
+    def _show_achievements(self) -> None:
+        """Show earned badges and progress toward locked achievements."""
+        self._sync_achievements()
+        dialog = AchievementsDialog(self.progress_store, self.lessons, self)
+        dialog.exec()
+
+    def _sync_achievements(self) -> List[str]:
+        """Persist any achievements earned by the current recorded progress."""
+        unlocked = self.progress_store.get_unlocked_achievements()
+        statuses = build_achievement_progress(
+            self.progress_store.get_session_history(),
+            unlocked,
+            self.progress_store.get_completed_lesson_texts(),
+            [len(lesson.texts) for lesson in self.lessons],
+        )
+        earned_ids = [
+            status.achievement.id
+            for status in statuses
+            if status.earned and status.achievement.id not in unlocked
+        ]
+        if not earned_ids:
+            return []
+        return self.progress_store.unlock_achievements(
+            earned_ids,
+            datetime.now().isoformat(),
+        )
 
     def _show_settings(self) -> None:
         """Show the settings dialog."""

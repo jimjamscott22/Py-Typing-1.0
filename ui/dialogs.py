@@ -10,12 +10,16 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -41,6 +45,7 @@ from core.analytics import (
     get_practice_recommendations,
     normalize_stats_for_display,
 )
+from core.achievements import ACHIEVEMENTS, build_achievement_progress
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -676,6 +681,136 @@ class StatisticsDialog(QDialog):
             QMessageBox.information(self, "Export Successful", f"Statistics exported to:\n{file_path}")
         except OSError as e:
             QMessageBox.warning(self, "Export Failed", f"Could not save file:\n{e}")
+
+
+class AchievementsDialog(QDialog):
+    """Display earned badges and progress toward locked achievements."""
+
+    def __init__(self, progress_store: ProgressStore, lessons: List[Lesson], parent=None):
+        super().__init__(parent)
+        self.progress_store = progress_store
+        self.lessons = lessons
+        self.setWindowTitle("🏅 Achievements & Badges")
+        self.setMinimumSize(760, 560)
+        self.resize(820, 650)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        statuses = build_achievement_progress(
+            self.progress_store.get_session_history(),
+            self.progress_store.get_unlocked_achievements(),
+            self.progress_store.get_completed_lesson_texts(),
+            [len(lesson.texts) for lesson in self.lessons],
+        )
+        unlocked_count = sum(1 for status in statuses if status.earned)
+
+        heading = QLabel("🏅 Your Badge Collection")
+        heading.setStyleSheet("font-size: 22px; font-weight: bold;")
+        layout.addWidget(heading)
+
+        summary = QLabel(
+            f"Unlocked {unlocked_count} of {len(ACHIEVEMENTS)} badges. "
+            "Complete recorded sessions to keep making progress."
+        )
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+        for index, status in enumerate(statuses):
+            grid.addWidget(self._create_badge_card(status, theme), index // 2, index % 2)
+
+        grid.setRowStretch((len(statuses) + 1) // 2, 1)
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+    @staticmethod
+    def _create_badge_card(status, theme) -> QFrame:
+        card = QFrame()
+        card.setFrameShape(QFrame.Shape.StyledPanel)
+        card.setMinimumHeight(170)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        border_color = "#4CAF50" if status.earned else theme.button_border
+        card.setStyleSheet(
+            f"QFrame {{ background: {theme.bg_secondary}; border: 2px solid {border_color}; "
+            "border-radius: 10px; }} "
+            "QLabel { border: none; background: transparent; }"
+        )
+        card_layout = QVBoxLayout(card)
+
+        title_row = QHBoxLayout()
+        icon = QLabel(status.achievement.icon if status.earned else "🔒")
+        icon.setStyleSheet("font-size: 30px;")
+        title_row.addWidget(icon)
+
+        title = QLabel(status.achievement.name)
+        title.setWordWrap(True)
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {theme.text_primary};")
+        title_row.addWidget(title, stretch=1)
+
+        state = QLabel("UNLOCKED" if status.earned else "LOCKED")
+        state_color = "#4CAF50" if status.earned else theme.text_secondary
+        state.setStyleSheet(f"font-weight: bold; color: {state_color};")
+        title_row.addWidget(state)
+        card_layout.addLayout(title_row)
+
+        description = QLabel(status.achievement.description)
+        description.setWordWrap(True)
+        description.setMinimumWidth(0)
+        description.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        description.setStyleSheet(f"color: {theme.text_secondary};")
+        card_layout.addWidget(description)
+
+        if status.earned:
+            date_text = ""
+            if status.unlocked_at:
+                try:
+                    date_text = datetime.fromisoformat(status.unlocked_at).strftime(" on %b %d, %Y")
+                except (TypeError, ValueError):
+                    date_text = ""
+            progress_label = QLabel(f"✓ Unlocked{date_text}")
+            progress_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            card_layout.addWidget(progress_label)
+        else:
+            progress_label = QLabel(status.progress_text)
+            progress_label.setStyleSheet(f"color: {theme.text_secondary};")
+            card_layout.addWidget(progress_label)
+
+            progress_bar = QProgressBar()
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(status.percent)
+            progress_bar.setTextVisible(False)
+            progress_bar.setMaximumHeight(10)
+            progress_bar.setStyleSheet(
+                f"QProgressBar {{ background: {theme.progress_bar_bg}; border: none; "
+                "border-radius: 5px; }} "
+                f"QProgressBar::chunk {{ background: {theme.progress_bar_fill}; "
+                "border-radius: 5px; }}"
+            )
+            card_layout.addWidget(progress_bar)
+
+        card_layout.addStretch()
+        return card
 
 
 class SettingsDialog(QDialog):

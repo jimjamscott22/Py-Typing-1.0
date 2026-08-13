@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 from core.models import SessionRecord
 from core.constants import (
@@ -58,6 +58,7 @@ class ProgressStore:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._create_schema()
         self._migrate_from_json_if_needed()
+        self._backfill_completed_lesson_texts()
         self._refresh_cache()
 
     @staticmethod
@@ -71,6 +72,8 @@ class ProgressStore:
             "developer_texts": {},
             "key_error_stats": {},
             "key_attempt_stats": {},
+            "achievements": {},
+            "completed_lesson_texts": [],
             "settings": dict(_DEFAULT_SETTINGS),
         }
 
@@ -134,6 +137,16 @@ class ProgressStore:
                 ON session_key_errors (lesson_index);
             CREATE INDEX IF NOT EXISTS idx_session_key_errors_timestamp
                 ON session_key_errors (session_timestamp);
+            CREATE TABLE IF NOT EXISTS achievements (
+                achievement_id TEXT PRIMARY KEY,
+                unlocked_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS completed_lesson_texts (
+                lesson_index INTEGER NOT NULL,
+                text_index INTEGER NOT NULL,
+                completed_at TEXT NOT NULL,
+                PRIMARY KEY (lesson_index, text_index)
+            );
             """
         )
         c.commit()
@@ -245,6 +258,29 @@ class ProgressStore:
         except OSError:
             pass
 
+    def _backfill_completed_lesson_texts(self) -> None:
+        """Seed curriculum progress from history once when badges are introduced."""
+        marker = self._conn.execute(
+            "SELECT value FROM kv WHERE key = ?",
+            ("achievement_completion_backfill_v1",),
+        ).fetchone()
+        if marker is not None:
+            return
+
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR IGNORE INTO completed_lesson_texts
+                   (lesson_index, text_index, completed_at)
+                   SELECT lesson_index, text_index, MIN(timestamp)
+                   FROM session_history
+                   WHERE lesson_index >= 0
+                   GROUP BY lesson_index, text_index"""
+            )
+            self._conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                ("achievement_completion_backfill_v1", json.dumps(True)),
+            )
+
     def _refresh_cache(self) -> None:
         """Repopulate the `data` mirror from SQLite."""
         state = self._empty_state()
@@ -307,6 +343,20 @@ class ProgressStore:
             row[0]: row[1]
             for row in self._conn.execute("SELECT key, count FROM key_attempt_stats")
         }
+
+        state["achievements"] = {
+            row[0]: row[1]
+            for row in self._conn.execute(
+                "SELECT achievement_id, unlocked_at FROM achievements"
+            )
+        }
+
+        state["completed_lesson_texts"] = [
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT lesson_index, text_index FROM completed_lesson_texts"
+            )
+        ]
 
         self.data = state
 
@@ -393,6 +443,62 @@ class ProgressStore:
     def get_session_history(self) -> List[Dict]:
         history = self.data.get("session_history", [])
         return history if isinstance(history, list) else []
+
+    def get_unlocked_achievements(self) -> Dict[str, str]:
+        achievements = self.data.get("achievements", {})
+        return achievements if isinstance(achievements, dict) else {}
+
+    def unlock_achievements(self, achievement_ids: List[str], unlocked_at: str) -> List[str]:
+        """Persist newly earned achievement IDs and return the IDs actually inserted."""
+        achievements = self.data.get("achievements")
+        if not isinstance(achievements, dict):
+            achievements = {}
+            self.data["achievements"] = achievements
+
+        newly_unlocked: List[str] = []
+        with self._conn:
+            for achievement_id in achievement_ids:
+                cursor = self._conn.execute(
+                    """INSERT OR IGNORE INTO achievements
+                       (achievement_id, unlocked_at) VALUES (?, ?)""",
+                    (achievement_id, unlocked_at),
+                )
+                if cursor.rowcount:
+                    achievements[achievement_id] = unlocked_at
+                    newly_unlocked.append(achievement_id)
+        return newly_unlocked
+
+    def mark_lesson_text_completed(
+        self,
+        lesson_index: int,
+        text_index: int,
+        completed_at: str,
+    ) -> None:
+        """Remember an exact lesson-text completion without trimming old progress."""
+        pair = (int(lesson_index), int(text_index))
+        completed = self.data.get("completed_lesson_texts")
+        if not isinstance(completed, list):
+            completed = []
+            self.data["completed_lesson_texts"] = completed
+
+        with self._conn:
+            cursor = self._conn.execute(
+                """INSERT OR IGNORE INTO completed_lesson_texts
+                   (lesson_index, text_index, completed_at) VALUES (?, ?, ?)""",
+                (pair[0], pair[1], completed_at),
+            )
+        if cursor.rowcount:
+            completed.append(pair)
+
+    def get_completed_lesson_texts(self) -> Set[Tuple[int, int]]:
+        completed = self.data.get("completed_lesson_texts", [])
+        if not isinstance(completed, list):
+            return set()
+        return {
+            (int(pair[0]), int(pair[1]))
+            for pair in completed
+            if isinstance(pair, (list, tuple)) and len(pair) == 2
+        }
 
     def get_setting(self, key: str, default=None):
         settings = self.data.get("settings", {})

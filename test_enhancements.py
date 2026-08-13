@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from core.analytics import compute_streaks, get_practice_recommendations
+from core.achievements import build_achievement_progress
 from core.models import SessionRecord
 from core.persistence import ProgressStore
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
@@ -93,6 +94,16 @@ class TestProgressStore:
         assert errors["q"] == 2
         assert attempts["q"] == 10
 
+    def test_achievement_unlocks_and_lesson_completions_persist(self, store: ProgressStore):
+        timestamp = datetime.now().isoformat()
+        store.mark_lesson_text_completed(2, 3, timestamp)
+        assert store.unlock_achievements(["first_steps"], timestamp) == ["first_steps"]
+        assert store.unlock_achievements(["first_steps"], timestamp) == []
+
+        reloaded = ProgressStore(store.path)
+        assert reloaded.get_unlocked_achievements()["first_steps"] == timestamp
+        assert (2, 3) in reloaded.get_completed_lesson_texts()
+
 
 class TestAnalytics:
     def test_streaks_empty(self):
@@ -126,6 +137,55 @@ class TestAnalytics:
         recs = get_practice_recommendations(errors, attempts, min_attempts=10)
         assert len(recs) == 1
         assert recs[0][0] == "a"
+
+
+class TestAchievements:
+    def test_balanced_badge_set_can_all_be_earned(self):
+        today = datetime.now()
+        history = []
+        for index in range(50):
+            history.append(
+                {
+                    "timestamp": (today - timedelta(days=index % 7)).isoformat(),
+                    "wpm": 75,
+                    "accuracy": 100.0,
+                    "errors": 0,
+                    "backspaces": 0,
+                    "text_length": 100,
+                }
+            )
+
+        statuses = build_achievement_progress(
+            history,
+            {},
+            {(0, 0), (0, 1), (1, 0)},
+            [2, 1],
+        )
+
+        assert len(statuses) == 12
+        assert all(status.earned for status in statuses)
+
+    def test_quality_badges_require_meaningful_text_length(self):
+        history = [
+            {
+                "timestamp": datetime.now().isoformat(),
+                "wpm": 10,
+                "accuracy": 100.0,
+                "errors": 0,
+                "backspaces": 0,
+                "text_length": 5,
+            }
+        ]
+
+        statuses = {
+            status.achievement.id: status
+            for status in build_achievement_progress(history, {}, set(), [1])
+        }
+
+        assert statuses["first_steps"].earned
+        assert not statuses["perfect_accuracy"].earned
+        assert not statuses["zero_errors"].earned
+        assert not statuses["zero_backspaces"].earned
 
 
 class TestWordgen:
