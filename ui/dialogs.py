@@ -1,5 +1,5 @@
 import csv
-from datetime import datetime
+from datetime import date, datetime
 from typing import List
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
@@ -46,6 +46,8 @@ from core.analytics import (
     normalize_stats_for_display,
 )
 from core.achievements import ACHIEVEMENTS, build_achievement_progress
+from core.challenges import evaluate_challenge_progress, get_daily_challenge
+from core.goals import evaluate_daily_goal, evaluate_weekly_goal
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -60,6 +62,8 @@ from core.constants import (
     DEFAULT_THEME,
     DEFAULT_ADAPTIVE_DRILLS,
     DEFAULT_TIMED_MODE_SECONDS,
+    DEFAULT_DAILY_GOAL_MINUTES,
+    DEFAULT_WEEKLY_GOAL_SESSIONS,
     TIMED_MODE_OPTIONS,
 )
 
@@ -811,6 +815,120 @@ class AchievementsDialog(QDialog):
 
         card_layout.addStretch()
         return card
+
+
+class ChallengesDialog(QDialog):
+    """Show today's challenge, streak, coin total, and editable practice goals."""
+
+    def __init__(self, progress_store: ProgressStore, parent=None):
+        super().__init__(parent)
+        self.progress_store = progress_store
+        self.setWindowTitle("🎯 Challenges & Goals")
+        self.setMinimumWidth(480)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        history = self.progress_store.get_session_history()
+        today = date.today()
+
+        heading = QLabel("🎯 Today's Challenge")
+        heading.setStyleSheet("font-size: 20px; font-weight: bold;")
+        layout.addWidget(heading)
+
+        challenge = get_daily_challenge(today)
+        progress = evaluate_challenge_progress(challenge, history, today)
+
+        challenge_group = QGroupBox(f"{challenge.icon} {challenge.title}")
+        challenge_layout = QVBoxLayout(challenge_group)
+
+        desc_label = QLabel(challenge.description)
+        desc_label.setWordWrap(True)
+        challenge_layout.addWidget(desc_label)
+
+        status_label = QLabel("✓ Completed today!" if progress.completed else progress.progress_text)
+        status_label.setStyleSheet(
+            "font-weight: bold; color: #4CAF50;" if progress.completed else "color: #666;"
+        )
+        challenge_layout.addWidget(status_label)
+
+        challenge_bar = QProgressBar()
+        challenge_bar.setRange(0, 100)
+        challenge_bar.setValue(progress.percent)
+        challenge_bar.setTextVisible(False)
+        challenge_layout.addWidget(challenge_bar)
+        layout.addWidget(challenge_group)
+
+        current_streak, longest_streak, unique_days = compute_streaks(history)
+        coins = self.progress_store.get_coins_total()
+
+        summary_group = QGroupBox("📈 Your Progress")
+        summary_layout = QGridLayout(summary_group)
+        summary_rows = [
+            ("Current Streak:", f"🔥 {current_streak} day{'s' if current_streak != 1 else ''}"),
+            ("Longest Streak:", f"{longest_streak} day{'s' if longest_streak != 1 else ''}"),
+            ("Coins Earned:", f"🪙 {coins}"),
+        ]
+        for i, (label, value) in enumerate(summary_rows):
+            label_widget = QLabel(label)
+            label_widget.setStyleSheet("font-weight: bold;")
+            value_widget = QLabel(value)
+            summary_layout.addWidget(label_widget, i, 0)
+            summary_layout.addWidget(value_widget, i, 1)
+        layout.addWidget(summary_group)
+
+        goals_group = QGroupBox("🥅 Practice Goals")
+        goals_layout = QFormLayout(goals_group)
+
+        daily_goal = self.progress_store.get_setting("daily_goal_minutes", DEFAULT_DAILY_GOAL_MINUTES)
+        daily_minutes, daily_met = evaluate_daily_goal(history, daily_goal, today)
+        self.daily_goal_spin = QSpinBox()
+        self.daily_goal_spin.setRange(0, 180)
+        self.daily_goal_spin.setSuffix(" min/day")
+        self.daily_goal_spin.setValue(int(daily_goal))
+        goals_layout.addRow("Daily Goal:", self.daily_goal_spin)
+        self.daily_goal_status = QLabel(
+            f"{'✓ ' if daily_met else ''}{daily_minutes:.0f} / {daily_goal:.0f} min today"
+        )
+        self.daily_goal_status.setStyleSheet(
+            "color: #4CAF50;" if daily_met else "color: #666;"
+        )
+        goals_layout.addRow("", self.daily_goal_status)
+
+        weekly_goal = self.progress_store.get_setting(
+            "weekly_goal_sessions", DEFAULT_WEEKLY_GOAL_SESSIONS
+        )
+        weekly_count, weekly_met = evaluate_weekly_goal(history, weekly_goal, today)
+        self.weekly_goal_spin = QSpinBox()
+        self.weekly_goal_spin.setRange(0, 50)
+        self.weekly_goal_spin.setSuffix(" sessions/wk")
+        self.weekly_goal_spin.setValue(int(weekly_goal))
+        goals_layout.addRow("Weekly Goal:", self.weekly_goal_spin)
+        self.weekly_goal_status = QLabel(
+            f"{'✓ ' if weekly_met else ''}{weekly_count} / {weekly_goal} sessions this week"
+        )
+        self.weekly_goal_status.setStyleSheet(
+            "color: #4CAF50;" if weekly_met else "color: #666;"
+        )
+        goals_layout.addRow("", self.weekly_goal_status)
+
+        layout.addWidget(goals_group)
+
+        button_layout = QHBoxLayout()
+        save_btn = QPushButton("💾 Save Goals")
+        save_btn.clicked.connect(self._save_goals)
+        button_layout.addWidget(save_btn)
+        button_layout.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+    def _save_goals(self) -> None:
+        """Persist the edited goal targets and close the dialog."""
+        self.progress_store.set_setting("daily_goal_minutes", self.daily_goal_spin.value())
+        self.progress_store.set_setting("weekly_goal_sessions", self.weekly_goal_spin.value())
+        self.accept()
 
 
 class SettingsDialog(QDialog):

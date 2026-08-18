@@ -1,6 +1,6 @@
 import html
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -31,8 +32,9 @@ from core.wordgen import (
 from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
-from core.analytics import get_practice_recommendations
+from core.analytics import compute_streaks, get_practice_recommendations
 from core.achievements import ACHIEVEMENTS_BY_ID, build_achievement_progress
+from core.challenges import Challenge, evaluate_challenge_progress, get_daily_challenge
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -46,6 +48,8 @@ from core.constants import (
     DEFAULT_THEME,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_ADAPTIVE_DRILLS,
+    SESSION_COIN_REWARD,
+    DAILY_CHALLENGE_COIN_REWARD,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
     WARMUP_DESCRIPTION,
@@ -53,7 +57,7 @@ from core.constants import (
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
 from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
-from ui.dialogs import AchievementsDialog, StatisticsDialog, SettingsDialog
+from ui.dialogs import AchievementsDialog, ChallengesDialog, StatisticsDialog, SettingsDialog
 from ui.styles import (
     build_main_stylesheet,
     build_target_text_style,
@@ -118,6 +122,7 @@ class TypingPracticeApp(QMainWindow):
         self._build_ui()
         self._apply_settings()
         self._initialize_state()
+        self._refresh_progress_strip()
 
     @staticmethod
     def _clamp_index(value: int, upper: int) -> int:
@@ -180,6 +185,8 @@ class TypingPracticeApp(QMainWindow):
         title.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
         layout.addWidget(title)
 
+        self._build_progress_strip(layout)
+
         self.lesson_list = QListWidget()
         self.lesson_list.addItem("Free Practice")
         self.lesson_list.addItems([lesson.title for lesson in self.lessons])
@@ -201,6 +208,13 @@ class TypingPracticeApp(QMainWindow):
         self.achievements_button.setToolTip("View unlocked badges and milestone progress")
         button_layout.addWidget(self.achievements_button)
 
+        self.challenges_button = QPushButton("🎯 Challenges & Goals")
+        self.challenges_button.clicked.connect(self._show_challenges)
+        self.challenges_button.setToolTip(
+            "View today's challenge, your streak, coins, and practice goals"
+        )
+        button_layout.addWidget(self.challenges_button)
+
         self.settings_button = QPushButton("⚙️ Settings")
         self.settings_button.clicked.connect(self._show_settings)
         self.settings_button.setToolTip("Configure app settings and penalties")
@@ -217,6 +231,62 @@ class TypingPracticeApp(QMainWindow):
         layout.addWidget(button_container)
 
         return sidebar
+
+    def _build_progress_strip(self, layout: QVBoxLayout) -> None:
+        """Build the always-visible streak/coins/daily-challenge summary."""
+        strip = QFrame()
+        strip.setObjectName("progress_strip")
+        strip.setStyleSheet(
+            "QFrame#progress_strip { background-color: rgba(0, 0, 0, 0.04); "
+            "border-radius: 6px; margin: 0 10px 8px 10px; } "
+            "QFrame#progress_strip QLabel { background: transparent; }"
+        )
+        strip_layout = QVBoxLayout(strip)
+        strip_layout.setContentsMargins(10, 8, 10, 8)
+        strip_layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        self.streak_value_label = QLabel("🔥 0 days")
+        self.streak_value_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        top_row.addWidget(self.streak_value_label)
+        top_row.addStretch()
+        self.coins_value_label = QLabel("🪙 0")
+        self.coins_value_label.setStyleSheet("font-size: 12px; font-weight: bold;")
+        top_row.addWidget(self.coins_value_label)
+        strip_layout.addLayout(top_row)
+
+        self.challenge_value_label = QLabel("Today's Challenge")
+        self.challenge_value_label.setStyleSheet("font-size: 11px;")
+        self.challenge_value_label.setWordWrap(True)
+        strip_layout.addWidget(self.challenge_value_label)
+
+        self.challenge_progress_bar = QProgressBar()
+        self.challenge_progress_bar.setRange(0, 100)
+        self.challenge_progress_bar.setMaximumHeight(14)
+        self.challenge_progress_bar.setTextVisible(True)
+        strip_layout.addWidget(self.challenge_progress_bar)
+
+        layout.addWidget(strip)
+
+    def _refresh_progress_strip(self) -> None:
+        """Recompute streak/coins/daily-challenge summary from stored progress."""
+        history = self.progress_store.get_session_history()
+        current_streak, _, _ = compute_streaks(history)
+        coins = self.progress_store.get_coins_total()
+
+        today = date.today()
+        challenge = get_daily_challenge(today)
+        progress = evaluate_challenge_progress(challenge, history, today)
+
+        self.streak_value_label.setText(
+            f"🔥 {current_streak} day{'s' if current_streak != 1 else ''}"
+        )
+        self.coins_value_label.setText(f"🪙 {coins}")
+        self.challenge_value_label.setText(f"{challenge.icon} {challenge.title}")
+        self.challenge_progress_bar.setValue(progress.percent)
+        self.challenge_progress_bar.setFormat(
+            "✓ Complete" if progress.completed else progress.progress_text
+        )
 
     def _build_content(self) -> QWidget:
         content = QWidget()
@@ -1241,6 +1311,7 @@ class TypingPracticeApp(QMainWindow):
             completion_msg += f" (penalty: -{wpm_penalty} WPM)"
 
         newly_unlocked_ids: List[str] = []
+        completed_challenge: Optional[Challenge] = None
 
         if not self.warmup_mode:
             lesson_name = (
@@ -1288,7 +1359,11 @@ class TypingPracticeApp(QMainWindow):
                 self._record_best_wpm(wpm)
 
             newly_unlocked_ids = self._sync_achievements()
+            self.progress_store.add_coins(SESSION_COIN_REWARD)
+            completed_challenge = self._sync_daily_challenge()
             self.progress_store.save()
+
+        self._refresh_progress_strip()
 
         if newly_unlocked_ids:
             badge_lines = [
@@ -1297,6 +1372,12 @@ class TypingPracticeApp(QMainWindow):
                 if badge_id in ACHIEVEMENTS_BY_ID
             ]
             completion_msg += "\n\n🏅 New badge unlocked!\n" + "\n".join(badge_lines)
+
+        if completed_challenge:
+            completion_msg += (
+                f"\n\n{completed_challenge.icon} Daily challenge complete: "
+                f"{completed_challenge.title}! +{DAILY_CHALLENGE_COIN_REWARD} coins"
+            )
 
         completion_msg += "\n\nPress Space to continue ➡️"
         self._update_description(completion_msg, mode="success")
@@ -1426,6 +1507,35 @@ class TypingPracticeApp(QMainWindow):
             earned_ids,
             datetime.now().isoformat(),
         )
+
+    def _show_challenges(self) -> None:
+        """Show today's challenge, streak, coins, and editable practice goals."""
+        dialog = ChallengesDialog(self.progress_store, self)
+        dialog.exec()
+        self._refresh_progress_strip()
+
+    def _sync_daily_challenge(self) -> Optional[Challenge]:
+        """Award coins once when today's challenge is newly completed."""
+        today_str = date.today().isoformat()
+        if self.progress_store.is_challenge_completed(today_str):
+            return None
+
+        today = date.today()
+        challenge = get_daily_challenge(today)
+        progress = evaluate_challenge_progress(
+            challenge, self.progress_store.get_session_history(), today
+        )
+        if not progress.completed:
+            return None
+
+        newly_recorded = self.progress_store.mark_challenge_completed(
+            today_str, challenge.id, datetime.now().isoformat()
+        )
+        if not newly_recorded:
+            return None
+
+        self.progress_store.add_coins(DAILY_CHALLENGE_COIN_REWARD)
+        return challenge
 
     def _show_settings(self) -> None:
         """Show the settings dialog."""

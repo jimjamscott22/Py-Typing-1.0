@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import QApplication
 
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.achievements import build_achievement_progress
+from core.challenges import CHALLENGE_TEMPLATES, evaluate_challenge_progress, get_daily_challenge
+from core.goals import evaluate_daily_goal, evaluate_weekly_goal
 from core.models import SessionRecord
 from core.persistence import ProgressStore
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
@@ -104,6 +106,24 @@ class TestProgressStore:
         assert reloaded.get_unlocked_achievements()["first_steps"] == timestamp
         assert (2, 3) in reloaded.get_completed_lesson_texts()
 
+    def test_coins_accumulate_and_persist(self, store: ProgressStore):
+        assert store.get_coins_total() == 0
+        assert store.add_coins(5) == 5
+        assert store.add_coins(25) == 30
+
+        reloaded = ProgressStore(store.path)
+        assert reloaded.get_coins_total() == 30
+
+    def test_challenge_completion_marked_once(self, store: ProgressStore):
+        timestamp = datetime.now().isoformat()
+        assert store.is_challenge_completed("2026-01-01") is False
+        assert store.mark_challenge_completed("2026-01-01", "speed_burst_40", timestamp) is True
+        assert store.is_challenge_completed("2026-01-01") is True
+        assert store.mark_challenge_completed("2026-01-01", "speed_burst_40", timestamp) is False
+
+        reloaded = ProgressStore(store.path)
+        assert reloaded.is_challenge_completed("2026-01-01") is True
+
 
 class TestAnalytics:
     def test_streaks_empty(self):
@@ -186,6 +206,72 @@ class TestAchievements:
         assert not statuses["perfect_accuracy"].earned
         assert not statuses["zero_errors"].earned
         assert not statuses["zero_backspaces"].earned
+
+
+class TestChallenges:
+    def test_daily_challenge_is_deterministic_per_day(self):
+        today = date(2026, 3, 5)
+        assert get_daily_challenge(today) == get_daily_challenge(today)
+
+    def test_daily_challenge_always_from_pool(self):
+        for offset in range(30):
+            challenge = get_daily_challenge(date(2026, 1, 1) + timedelta(days=offset))
+            assert challenge in CHALLENGE_TEMPLATES
+
+    def test_best_wpm_challenge_progress(self):
+        today = date(2026, 3, 5)
+        challenge = next(c for c in CHALLENGE_TEMPLATES if c.metric == "best_wpm")
+        history = [
+            {"timestamp": datetime(2026, 3, 5, 9, 0).isoformat(), "wpm": challenge.target - 5},
+            {"timestamp": datetime(2026, 3, 4, 9, 0).isoformat(), "wpm": 999},  # yesterday, ignored
+        ]
+        progress = evaluate_challenge_progress(challenge, history, today)
+        assert not progress.completed
+        assert progress.current == challenge.target - 5
+
+        history.append({"timestamp": datetime(2026, 3, 5, 10, 0).isoformat(), "wpm": challenge.target})
+        progress = evaluate_challenge_progress(challenge, history, today)
+        assert progress.completed
+
+    def test_session_count_challenge_progress(self):
+        today = date(2026, 3, 5)
+        challenge = next(c for c in CHALLENGE_TEMPLATES if c.metric == "session_count")
+        history = [
+            {"timestamp": datetime(2026, 3, 5, h, 0).isoformat()}
+            for h in range(int(challenge.target) - 1)
+        ]
+        assert not evaluate_challenge_progress(challenge, history, today).completed
+
+        history.append({"timestamp": datetime(2026, 3, 5, 23, 0).isoformat()})
+        assert evaluate_challenge_progress(challenge, history, today).completed
+
+
+class TestGoals:
+    def test_daily_goal_counts_only_today(self):
+        today = date(2026, 3, 5)
+        history = [
+            {"timestamp": datetime(2026, 3, 5, 9, 0).isoformat(), "duration_seconds": 300},
+            {"timestamp": datetime(2026, 3, 4, 9, 0).isoformat(), "duration_seconds": 600},
+        ]
+        minutes, met = evaluate_daily_goal(history, goal_minutes=10, for_date=today)
+        assert minutes == 5.0
+        assert not met
+
+        minutes, met = evaluate_daily_goal(history, goal_minutes=5, for_date=today)
+        assert met
+
+    def test_weekly_goal_counts_current_week_only(self):
+        # 2026-03-05 is a Thursday; week starts Monday 2026-03-02.
+        today = date(2026, 3, 5)
+        history = [
+            {"timestamp": datetime(2026, 3, 3, 9, 0).isoformat()},
+            {"timestamp": datetime(2026, 3, 5, 9, 0).isoformat()},
+            {"timestamp": datetime(2026, 2, 27, 9, 0).isoformat()},  # prior week
+        ]
+        count, met = evaluate_weekly_goal(history, goal_sessions=2, for_date=today)
+        assert count == 2
+        assert met
+        assert not evaluate_weekly_goal(history, goal_sessions=3, for_date=today)[1]
 
 
 class TestWordgen:
@@ -283,3 +369,26 @@ class TestWarmupToggle:
 
         assert len(added) == 1
         assert saved
+
+
+class TestRewardsIntegration:
+    def test_completing_a_session_awards_coins_and_refreshes_strip(self, window):
+        from core.constants import SESSION_COIN_REWARD
+
+        assert window.progress_store.get_coins_total() == 0
+        target = window.current_target_text
+        window.typing_input.setPlainText(target)
+
+        # An instant, error-free completion may also satisfy today's actual
+        # daily challenge, so only assert the session reward is included —
+        # not an exact total, which depends on which challenge is live today.
+        total = window.progress_store.get_coins_total()
+        assert total >= SESSION_COIN_REWARD
+        assert window.coins_value_label.text() == f"🪙 {total}"
+
+    def test_warmup_completion_awards_no_coins(self, window):
+        window._toggle_warmup_mode(True)
+        target = window.current_target_text
+        window.typing_input.setPlainText(target)
+
+        assert window.progress_store.get_coins_total() == 0
