@@ -506,13 +506,24 @@ class ProgressStore:
 
     def add_coins(self, amount: int) -> int:
         """Add `amount` coins to the running total and return the new total."""
-        total = self.get_coins_total() + int(amount)
-        self.data["coins_total"] = total
+        delta = int(amount)
         with self._conn:
             self._conn.execute(
-                "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
-                ("coins_total", json.dumps(total)),
+                "INSERT OR IGNORE INTO kv (key, value) VALUES (?, ?)",
+                ("coins_total", "0"),
             )
+            self._conn.execute(
+                """UPDATE kv
+                   SET value = CAST(COALESCE(CAST(value AS INTEGER), 0) + ? AS TEXT)
+                   WHERE key = ?""",
+                (delta, "coins_total"),
+            )
+            row = self._conn.execute(
+                "SELECT CAST(value AS INTEGER) FROM kv WHERE key = ?",
+                ("coins_total",),
+            ).fetchone()
+        total = int(row[0]) if row else 0
+        self.data["coins_total"] = total
         return total
 
     def is_challenge_completed(self, challenge_date: str) -> bool:

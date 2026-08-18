@@ -114,6 +114,17 @@ class TestProgressStore:
         reloaded = ProgressStore(store.path)
         assert reloaded.get_coins_total() == 30
 
+    def test_coins_increment_atomically_across_store_instances(self, tmp_path: Path):
+        progress_path = tmp_path / "typing_progress.json"
+        store_a = ProgressStore(progress_path)
+        store_b = ProgressStore(progress_path)
+
+        assert store_a.add_coins(5) == 5
+        assert store_b.add_coins(5) == 10
+
+        reloaded = ProgressStore(progress_path)
+        assert reloaded.get_coins_total() == 10
+
     def test_challenge_completion_marked_once(self, store: ProgressStore):
         timestamp = datetime.now().isoformat()
         assert store.is_challenge_completed("2026-01-01") is False
