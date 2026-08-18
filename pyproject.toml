@@ -1,7 +1,7 @@
 [project]
 name = "py-typing-1-0"
 version = "0.1.0"
-description = "Add your description here"
+description = "Typing practice app for anyone who wants to improve their typing speed and accuracy."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

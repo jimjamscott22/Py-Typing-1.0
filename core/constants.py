@@ -13,6 +13,12 @@ DEFAULT_THEME = "Light"  # Default theme name
 DEFAULT_TIMED_MODE_SECONDS = 0  # 0 = disabled; 60/120/300 for timed drills
 DEFAULT_ADAPTIVE_DRILLS = True  # Weight random words toward weak keys
 
+DEFAULT_DAILY_GOAL_MINUTES = 10  # Personal daily practice-time goal
+DEFAULT_WEEKLY_GOAL_SESSIONS = 5  # Personal weekly session-count goal
+
+SESSION_COIN_REWARD = 5  # Coins awarded per completed, recorded session
+DAILY_CHALLENGE_COIN_REWARD = 25  # Bonus coins for completing the day's challenge
+
 TIMED_MODE_OPTIONS = (
     ("Off", 0),
     ("1 minute", 60),

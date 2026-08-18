@@ -17,6 +17,8 @@ from core.constants import (
     DEFAULT_DEVELOPER_KEYS_MODE,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_DAILY_GOAL_MINUTES,
+    DEFAULT_WEEKLY_GOAL_SESSIONS,
 )
 
 
@@ -33,6 +35,8 @@ _DEFAULT_SETTINGS: Dict[str, object] = {
     "developer_keys_mode": DEFAULT_DEVELOPER_KEYS_MODE,
     "timed_mode_seconds": DEFAULT_TIMED_MODE_SECONDS,
     "adaptive_drills": DEFAULT_ADAPTIVE_DRILLS,
+    "daily_goal_minutes": DEFAULT_DAILY_GOAL_MINUTES,
+    "weekly_goal_sessions": DEFAULT_WEEKLY_GOAL_SESSIONS,
 }
 
 
@@ -74,6 +78,7 @@ class ProgressStore:
             "key_attempt_stats": {},
             "achievements": {},
             "completed_lesson_texts": [],
+            "coins_total": 0,
             "settings": dict(_DEFAULT_SETTINGS),
         }
 
@@ -146,6 +151,11 @@ class ProgressStore:
                 text_index INTEGER NOT NULL,
                 completed_at TEXT NOT NULL,
                 PRIMARY KEY (lesson_index, text_index)
+            );
+            CREATE TABLE IF NOT EXISTS challenge_completions (
+                challenge_date TEXT PRIMARY KEY,
+                challenge_id TEXT NOT NULL,
+                completed_at TEXT NOT NULL
             );
             """
         )
@@ -489,6 +499,59 @@ class ProgressStore:
             )
         if cursor.rowcount:
             completed.append(pair)
+
+    def get_coins_total(self) -> int:
+        coins = self.data.get("coins_total", 0)
+        return coins if isinstance(coins, int) else 0
+
+    def add_coins(self, amount: int) -> int:
+        """Add `amount` coins to the running total and return the new total."""
+        total = self.get_coins_total() + int(amount)
+        self.data["coins_total"] = total
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                ("coins_total", json.dumps(total)),
+            )
+        return total
+
+    def is_challenge_completed(self, challenge_date: str) -> bool:
+        cursor = self._conn.execute(
+            "SELECT 1 FROM challenge_completions WHERE challenge_date = ?",
+            (challenge_date,),
+        )
+        return cursor.fetchone() is not None
+
+    def mark_challenge_completed(
+        self,
+        challenge_date: str,
+        challenge_id: str,
+        completed_at: str,
+        coin_reward: int = 0,
+    ) -> bool:
+        """Record a challenge as completed for `challenge_date` and award its coin reward.
+
+        Both writes happen in a single transaction so a crash between them can
+        never leave the challenge marked complete without its coins granted.
+
+        Returns True if this call newly recorded it (False if it was already
+        marked complete), so callers know the reward was granted exactly once.
+        """
+        with self._conn:
+            cursor = self._conn.execute(
+                """INSERT OR IGNORE INTO challenge_completions
+                   (challenge_date, challenge_id, completed_at) VALUES (?, ?, ?)""",
+                (challenge_date, challenge_id, completed_at),
+            )
+            newly_recorded = bool(cursor.rowcount)
+            if newly_recorded and coin_reward:
+                total = self.get_coins_total() + int(coin_reward)
+                self.data["coins_total"] = total
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                    ("coins_total", json.dumps(total)),
+                )
+        return newly_recorded
 
     def get_completed_lesson_texts(self) -> Set[Tuple[int, int]]:
         completed = self.data.get("completed_lesson_texts", [])
