@@ -124,6 +124,23 @@ class TestProgressStore:
         reloaded = ProgressStore(store.path)
         assert reloaded.is_challenge_completed("2026-01-01") is True
 
+    def test_challenge_completion_awards_coins_atomically(self, store: ProgressStore):
+        timestamp = datetime.now().isoformat()
+        assert store.mark_challenge_completed(
+            "2026-01-01", "speed_burst_40", timestamp, coin_reward=25
+        ) is True
+        assert store.get_coins_total() == 25
+
+        # Already-completed challenges must not grant the reward again.
+        assert store.mark_challenge_completed(
+            "2026-01-01", "speed_burst_40", timestamp, coin_reward=25
+        ) is False
+        assert store.get_coins_total() == 25
+
+        reloaded = ProgressStore(store.path)
+        assert reloaded.is_challenge_completed("2026-01-01") is True
+        assert reloaded.get_coins_total() == 25
+
 
 class TestAnalytics:
     def test_streaks_empty(self):

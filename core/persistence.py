@@ -527,11 +527,15 @@ class ProgressStore:
         challenge_date: str,
         challenge_id: str,
         completed_at: str,
+        coin_reward: int = 0,
     ) -> bool:
-        """Record a challenge as completed for `challenge_date`.
+        """Record a challenge as completed for `challenge_date` and award its coin reward.
+
+        Both writes happen in a single transaction so a crash between them can
+        never leave the challenge marked complete without its coins granted.
 
         Returns True if this call newly recorded it (False if it was already
-        marked complete), so callers can award coins exactly once per day.
+        marked complete), so callers know the reward was granted exactly once.
         """
         with self._conn:
             cursor = self._conn.execute(
@@ -539,7 +543,15 @@ class ProgressStore:
                    (challenge_date, challenge_id, completed_at) VALUES (?, ?, ?)""",
                 (challenge_date, challenge_id, completed_at),
             )
-        return bool(cursor.rowcount)
+            newly_recorded = bool(cursor.rowcount)
+            if newly_recorded and coin_reward:
+                total = self.get_coins_total() + int(coin_reward)
+                self.data["coins_total"] = total
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+                    ("coins_total", json.dumps(total)),
+                )
+        return newly_recorded
 
     def get_completed_lesson_texts(self) -> Set[Tuple[int, int]]:
         completed = self.data.get("completed_lesson_texts", [])
