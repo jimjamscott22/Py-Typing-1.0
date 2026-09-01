@@ -1529,12 +1529,14 @@ class TypingPracticeApp(QMainWindow):
             return None
 
         newly_recorded = self.progress_store.mark_challenge_completed(
-            today_str, challenge.id, datetime.now().isoformat()
+            today_str,
+            challenge.id,
+            datetime.now().isoformat(),
+            coin_reward=DAILY_CHALLENGE_COIN_REWARD,
         )
         if not newly_recorded:
             return None
 
-        self.progress_store.add_coins(DAILY_CHALLENGE_COIN_REWARD)
         return challenge
 
     def _show_settings(self) -> None:
