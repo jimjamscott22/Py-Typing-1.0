@@ -1,5 +1,6 @@
 """Tests for persistence, analytics, and word generation."""
 
+import json
 import os
 import tempfile
 from datetime import date, datetime, timedelta
@@ -19,6 +20,7 @@ from core.models import SessionRecord
 from core.persistence import ProgressStore
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 from core.warmup import WARMUP_PHRASES, get_warmup_text
+from ui.dialogs import SettingsDialog
 from ui.main_window import TypingPracticeApp
 
 
@@ -47,6 +49,20 @@ class TestProgressStore:
         store.set_setting("theme", "Dark")
         assert store.get_setting("backspace_penalty") == 5
         assert store.get_setting("theme") == "Dark"
+
+    def test_legacy_dark_mode_migrates_to_dark_theme(self, tmp_path: Path):
+        progress_path = tmp_path / "typing_progress.json"
+        progress_path.write_text(
+            json.dumps({"settings": {"dark_mode": True}}),
+            encoding="utf-8",
+        )
+
+        migrated = ProgressStore(progress_path)
+        assert migrated.get_setting("theme") == "Dark"
+        migrated.close()
+
+        reloaded = ProgressStore(progress_path)
+        assert reloaded.get_setting("theme") == "Dark"
 
     def test_save_persists_position(self, store: ProgressStore):
         store.data["current_lesson_index"] = 3
@@ -140,6 +156,132 @@ class TestProgressStore:
         reloaded = ProgressStore(store.path)
         assert reloaded.is_challenge_completed("2026-01-01") is True
         assert reloaded.get_coins_total() == 25
+
+
+class TestSettingsDialog:
+    def test_save_emits_only_changed_setting_names(self, qapp, store: ProgressStore):
+        store.set_setting("theme", "Light")
+        dialog = SettingsDialog(store)
+        emitted_args = []
+        dialog.settings_changed.connect(lambda *args: emitted_args.append(args))
+
+        dialog.theme_combo.setCurrentText("Dark")
+        dialog._save_settings()
+
+        assert emitted_args == [(frozenset({"theme"}),)]
+
+
+class TestSettingsApplication:
+    def test_visual_change_preserves_active_generated_drill(self, window):
+        random_index = next(
+            index
+            for index, lesson in enumerate(window.lessons)
+            if lesson.title == "Random Words"
+        )
+        window.load_lesson(random_index)
+        original_target = window.current_target_text
+        typed = original_target[:4]
+        window.typing_input.setPlainText(typed)
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.theme_combo.setCurrentText("Dark")
+        dialog._save_settings()
+
+        assert window.current_theme.name == "Dark"
+        assert window.current_target_text == original_target
+        assert window.typing_input.toPlainText() == typed
+        assert window.session.typed_text == typed
+
+    def test_generated_change_is_deferred_until_next_drill(self, window):
+        random_index = next(
+            index
+            for index, lesson in enumerate(window.lessons)
+            if lesson.title == "Random Words"
+        )
+        window.load_lesson(random_index)
+        original_target = window.current_target_text
+        typed = original_target[:4]
+        window.typing_input.setPlainText(typed)
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.word_count_spin.setValue(12)
+        dialog._save_settings()
+
+        assert window.current_target_text == original_target
+        assert window.typing_input.toPlainText() == typed
+        assert window.progress_store.get_random_text(random_index) is None
+
+        window.load_lesson(random_index)
+        assert len(window.current_target_text.split()) == 12
+        assert window.typing_input.toPlainText() == ""
+
+    def test_generated_change_applies_before_drill_starts(self, window):
+        random_index = next(
+            index
+            for index, lesson in enumerate(window.lessons)
+            if lesson.title == "Random Words"
+        )
+        window.load_lesson(random_index)
+        assert len(window.current_target_text.split()) == 25
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.word_count_spin.setValue(12)
+        dialog._save_settings()
+
+        assert len(window.current_target_text.split()) == 12
+        assert window.typing_input.toPlainText() == ""
+
+    def test_developer_change_is_deferred_until_next_drill(self, window):
+        developer_index = next(
+            index
+            for index, lesson in enumerate(window.lessons)
+            if lesson.title == "Developer Keys"
+        )
+        window.load_lesson(developer_index)
+        original_target = window.current_target_text
+        typed = original_target[:2]
+        window.typing_input.setPlainText(typed)
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.developer_length_spin.setValue(12)
+        dialog._save_settings()
+
+        assert window.current_target_text == original_target
+        assert window.typing_input.toPlainText() == typed
+        assert window.progress_store.get_developer_text(developer_index) is None
+
+        window.load_lesson(developer_index)
+        assert len(window.current_target_text.split()) == 12
+        assert window.typing_input.toPlainText() == ""
+
+    def test_timed_change_applies_after_active_exercise(self, window):
+        window.progress_store.set_setting("timed_mode_seconds", 60)
+        window._apply_settings()
+        window.load_lesson(0)
+        first_character = window.current_target_text[:1]
+        window.typing_input.setPlainText(first_character)
+        assert window._timed_mode_active
+        assert window._timed_timer.isActive()
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.timed_mode_combo.setCurrentIndex(
+            dialog.timed_mode_combo.findData(0)
+        )
+        dialog._save_settings()
+
+        assert window._timed_mode_seconds == 0
+        assert window._timed_mode_active
+        assert window._timed_timer.isActive()
+
+        window.reset_exercise()
+        window.typing_input.setPlainText(first_character)
+        assert not window._timed_mode_active
+        assert not window._timed_timer.isActive()
 
 
 class TestAnalytics:

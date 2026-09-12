@@ -17,6 +17,7 @@ from core.constants import (
     DEFAULT_DEVELOPER_KEYS_MODE,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_THEME,
     DEFAULT_DAILY_GOAL_MINUTES,
     DEFAULT_WEEKLY_GOAL_SESSIONS,
 )
@@ -35,6 +36,7 @@ _DEFAULT_SETTINGS: Dict[str, object] = {
     "developer_keys_mode": DEFAULT_DEVELOPER_KEYS_MODE,
     "timed_mode_seconds": DEFAULT_TIMED_MODE_SECONDS,
     "adaptive_drills": DEFAULT_ADAPTIVE_DRILLS,
+    "theme": DEFAULT_THEME,
     "daily_goal_minutes": DEFAULT_DAILY_GOAL_MINUTES,
     "weekly_goal_sessions": DEFAULT_WEEKLY_GOAL_SESSIONS,
 }
@@ -62,6 +64,7 @@ class ProgressStore:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._create_schema()
         self._migrate_from_json_if_needed()
+        self._migrate_legacy_theme_setting()
         self._backfill_completed_lesson_texts()
         self._refresh_cache()
 
@@ -267,6 +270,31 @@ class ProgressStore:
             self.path.rename(self.path.with_suffix(".json.migrated"))
         except OSError:
             pass
+
+    def _migrate_legacy_theme_setting(self) -> None:
+        """Translate the retired dark-mode flag into the current theme setting."""
+        current_theme = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", ("theme",)
+        ).fetchone()
+        if current_theme is not None:
+            return
+
+        legacy_dark_mode = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", ("dark_mode",)
+        ).fetchone()
+        dark_mode_enabled = False
+        if legacy_dark_mode is not None:
+            try:
+                dark_mode_enabled = json.loads(legacy_dark_mode[0]) is True
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        theme_name = "Dark" if dark_mode_enabled else DEFAULT_THEME
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("theme", json.dumps(theme_name)),
+            )
 
     def _backfill_completed_lesson_texts(self) -> None:
         """Seed curriculum progress from history once when badges are introduced."""

@@ -65,6 +65,15 @@ from ui.styles import (
 )
 from ui.formats import make_input_formats
 
+
+_RANDOM_DRILL_SETTINGS = frozenset(
+    {"random_word_count", "adaptive_drills", "timed_mode_seconds"}
+)
+_DEVELOPER_DRILL_SETTINGS = frozenset(
+    {"developer_keys_length", "developer_keys_mode", "timed_mode_seconds"}
+)
+
+
 class TypingPracticeApp(QMainWindow):
     """Main application window for touch typing practice."""
 
@@ -531,7 +540,7 @@ class TypingPracticeApp(QMainWindow):
         self.keyboard_toggle.setText("⌨️ Hide Keyboard" if visible else "⌨️ Show Keyboard")
         self.progress_store.set_setting("show_keyboard", visible)
 
-    def _apply_settings(self, *, refresh_generated: bool = False) -> None:
+    def _apply_settings(self) -> None:
         """Apply saved settings to the UI."""
         self._backspace_penalty = self.progress_store.get_setting(
             "backspace_penalty", DEFAULT_BACKSPACE_PENALTY
@@ -566,21 +575,6 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
-
-        # Refresh generated drills only after Settings save (not on startup).
-        if refresh_generated and self.mode == "lesson" and self.lessons:
-            current_lesson = self.lessons[self.current_lesson_index]
-            generated_kind = self._get_generated_lesson_kind(
-                current_lesson, current_lesson.texts[0] if current_lesson.texts else ""
-            )
-            if generated_kind == "developer":
-                self.current_target_text = ""
-                self.progress_store.clear_developer_text(self.current_lesson_index)
-                self.load_current_text()
-            elif generated_kind == "random":
-                self.current_target_text = ""
-                self.progress_store.clear_random_text(self.current_lesson_index)
-                self.load_current_text()
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -1542,8 +1536,29 @@ class TypingPracticeApp(QMainWindow):
     def _show_settings(self) -> None:
         """Show the settings dialog."""
         dialog = SettingsDialog(self.progress_store, self)
-        dialog.settings_changed.connect(lambda: self._apply_settings(refresh_generated=True))
+        dialog.settings_changed.connect(self._on_settings_changed)
         dialog.exec()
+
+    def _on_settings_changed(self, changed_keys: object) -> None:
+        """Apply settings saved by the dialog."""
+        self._apply_settings()
+        changed = set(changed_keys) if isinstance(changed_keys, (set, frozenset)) else set()
+        generated_kind = self._active_generated_kind()
+        generated_settings_changed = False
+        if generated_kind == "random" and changed & _RANDOM_DRILL_SETTINGS:
+            self.progress_store.clear_random_text(self.current_lesson_index)
+            generated_settings_changed = True
+        elif generated_kind == "developer" and changed & _DEVELOPER_DRILL_SETTINGS:
+            self.progress_store.clear_developer_text(self.current_lesson_index)
+            generated_settings_changed = True
+
+        if (
+            generated_settings_changed
+            and not self.session.is_active
+            and not self.session.typed_text
+        ):
+            self.current_target_text = ""
+            self.load_current_text()
 
     def _toggle_warmup_mode(self, checked: bool) -> None:
         """Enter or exit warmup mode from the sidebar toggle button."""
