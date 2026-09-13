@@ -156,3 +156,25 @@ class TestFinalize:
 
         assert result.best_wpm_improved
         assert controller.best_wpm.get("2") == result.wpm
+
+    def test_best_wpm_synced_to_progress_store_on_improvement(self, controller: SessionController):
+        """Verify that improved best_wpm is synced to progress_store.data within finalize()."""
+        controller.session.typed_text = "hello"
+        controller.session.begin()
+        controller.session.start_time -= 1  # ensure elapsed > 0 for a nonzero WPM
+
+        result = controller.finalize(
+            timed_out=False,
+            target_text="hello",
+            mode="lesson",
+            warmup_mode=False,
+            answer_imported=False,
+            lesson_index=1,
+            text_index=0,
+            lesson_name="Second Lesson",
+            lesson_text_counts=[1, 1],
+        )
+
+        assert result.best_wpm_improved
+        # Verify the new WPM is immediately in progress_store.data
+        assert controller.progress_store.data["best_wpm"].get("1") == result.wpm

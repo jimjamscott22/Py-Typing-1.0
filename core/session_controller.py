@@ -236,6 +236,8 @@ class SessionController:
 
             if mode == "lesson":
                 best_wpm_improved = self.best_wpm.update(str(lesson_index), wpm)
+                if best_wpm_improved:
+                    self.progress_store.data["best_wpm"] = self.best_wpm.to_dict()
 
             newly_unlocked_ids = self.sync_achievements(lesson_text_counts)
             self.progress_store.add_coins(SESSION_COIN_REWARD)
