@@ -78,3 +78,81 @@ class TestRecordEdit:
     def test_insertions_past_target_length_are_ignored(self, controller: SessionController):
         controller.record_edit([(0, "hello!!!")], "hello")
         assert sum(controller.session.key_attempts.values()) == 5
+
+
+class TestSaveWeakKeyRound:
+    def test_records_once_per_round(self, controller: SessionController):
+        controller.session.key_attempts = {"a": 5}
+        controller.session.key_errors = {"a": 2}
+
+        controller.save_weak_key_round("lesson", False, False, lesson_index=0)
+        controller.save_weak_key_round("lesson", False, False, lesson_index=0)
+
+        assert len(controller.progress_store.get_weak_key_rounds()) == 1
+
+    def test_skips_in_warmup_mode(self, controller: SessionController):
+        controller.session.key_attempts = {"a": 5}
+        controller.save_weak_key_round("lesson", True, False, lesson_index=0)
+        assert controller.progress_store.get_weak_key_rounds() == []
+
+
+class TestFinalize:
+    def test_lesson_completion_persists_a_session_record(self, controller: SessionController):
+        controller.session.typed_text = "hello"
+        controller.session.begin()
+
+        result = controller.finalize(
+            timed_out=False,
+            target_text="hello",
+            mode="lesson",
+            warmup_mode=False,
+            answer_imported=False,
+            lesson_index=0,
+            text_index=0,
+            lesson_name="Home Row",
+            lesson_text_counts=[1],
+        )
+
+        assert controller.round_complete
+        history = controller.progress_store.get_session_history()
+        assert len(history) == 1
+        assert history[0]["lesson_name"] == "Home Row"
+        assert result.wpm >= 0
+
+    def test_warmup_mode_skips_persistence(self, controller: SessionController):
+        controller.session.typed_text = "hello"
+        controller.session.begin()
+
+        controller.finalize(
+            timed_out=False,
+            target_text="hello",
+            mode="warmup",
+            warmup_mode=True,
+            answer_imported=False,
+            lesson_index=0,
+            text_index=0,
+            lesson_name="Warmup",
+            lesson_text_counts=[],
+        )
+
+        assert controller.progress_store.get_session_history() == []
+
+    def test_best_wpm_improvement_is_reported(self, controller: SessionController):
+        controller.session.typed_text = "hello"
+        controller.session.begin()
+        controller.session.start_time -= 1  # ensure elapsed > 0 for a nonzero WPM
+
+        result = controller.finalize(
+            timed_out=False,
+            target_text="hello",
+            mode="lesson",
+            warmup_mode=False,
+            answer_imported=False,
+            lesson_index=2,
+            text_index=0,
+            lesson_name="Numbers",
+            lesson_text_counts=[1, 1, 1],
+        )
+
+        assert result.best_wpm_improved
+        assert controller.best_wpm.get("2") == result.wpm
