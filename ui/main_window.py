@@ -1,8 +1,10 @@
 import html
+import re
 import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
+from uuid import uuid4
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtGui import QFont, QTextCursor
@@ -27,6 +29,7 @@ from core.wordgen import (
     generate_text,
     generate_developer_text,
     generate_adaptive_text,
+    generate_weak_key_text,
     timed_word_count,
 )
 from core.audio import CelebrationSoundManager
@@ -56,6 +59,8 @@ from core.constants import (
 )
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
+from core.weak_keys import analyze_weak_keys, WeakKeyProfile, MIN_ROUNDS, GROUP_COUNT
+from ui.typing_input import TypingInput
 from ui.widgets import KeyboardWidget, FingerLegendWidget, CelebrationOverlay
 from ui.dialogs import AchievementsDialog, ChallengesDialog, StatisticsDialog, SettingsDialog
 from ui.styles import (
@@ -76,7 +81,10 @@ class TypingPracticeApp(QMainWindow):
         self.warmup_mode = False
         self._pre_warmup_state: dict | None = None
         self._previous_typed_length = 0  # Track for backspace detection
-        self._key_stats_recorded_length = 0  # How much of typed_text has already been counted for key stats
+        self._weak_profile = WeakKeyProfile(0, ())
+        self._weak_round_id = str(uuid4())
+        self._weak_round_saved = False
+        self._answer_imported = False
         self._pending_display_update = False  # Guard for deferred display refresh
         self._round_complete = False  # True after a round finishes; Space advances to the next
         self._last_highlighted_length = 0  # Incremental input highlighting cursor
@@ -389,7 +397,7 @@ class TypingPracticeApp(QMainWindow):
         
         layout.addLayout(input_header)
 
-        self.typing_input = QTextEdit()
+        self.typing_input = TypingInput()
         self.typing_input.setFont(QFont("Courier New", 16))
         self.typing_input.setMaximumHeight(150)
         self.typing_input.setPlaceholderText("Start typing here...")
@@ -397,6 +405,8 @@ class TypingPracticeApp(QMainWindow):
             "padding: 20px; background-color: #fff; border: 2px solid #2196F3; border-radius: 8px;"
         )
         self.typing_input.textChanged.connect(self.on_text_changed)
+        self.typing_input.user_edited.connect(self._on_user_edit)
+        self.typing_input.answer_imported.connect(self._mark_answer_imported)
         
         # Install event filter for backspace detection
         self.typing_input.installEventFilter(self)
@@ -581,6 +591,8 @@ class TypingPracticeApp(QMainWindow):
                 self.current_target_text = ""
                 self.progress_store.clear_random_text(self.current_lesson_index)
                 self.load_current_text()
+            elif generated_kind == "weak":
+                self.load_current_text()
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -605,6 +617,9 @@ class TypingPracticeApp(QMainWindow):
             self._update_description(WARMUP_DESCRIPTION, mode="default")
         else:
             self._update_description(FREE_PRACTICE_DESCRIPTION, mode="default")
+
+        if self._active_generated_kind() == "weak" and not self._round_complete:
+            self._show_weak_key_status()
 
     def eventFilter(self, obj, event) -> bool:
         """Intercept key events to track backspace usage and enforce strict mode."""
@@ -685,6 +700,7 @@ class TypingPracticeApp(QMainWindow):
         self.mode = "free"
         self.free_controls.show()
         self.next_button.setEnabled(False)
+        self.regenerate_button.hide()
         self.lesson_title.setText("Free Practice")
         self._update_description(FREE_PRACTICE_DESCRIPTION, mode="default")
         custom_text = self.custom_text_input.toPlainText().strip()
@@ -735,9 +751,13 @@ class TypingPracticeApp(QMainWindow):
         lesson = self.lessons[index]
 
         # Show regenerate button for generated drill lessons.
-        is_generated_lesson = lesson.title in {"Random Words", "Developer Keys"}
+        is_generated_lesson = self._get_generated_lesson_kind(lesson, lesson.texts[0]) is not None
         self.regenerate_button.setVisible(is_generated_lesson)
-        if lesson.title == "Developer Keys":
+        self.regenerate_button.setEnabled(True)
+        if lesson.title == "Weak Key Practice":
+            self.regenerate_button.setText("Generate New Drill")
+            self.regenerate_button.setToolTip("Generate a drill from your recent key mistakes")
+        elif lesson.title == "Developer Keys":
             self.regenerate_button.setText("⌨️ Generate New Keys")
             self.regenerate_button.setToolTip("Generate a new developer-key drill")
         else:
@@ -769,14 +789,19 @@ class TypingPracticeApp(QMainWindow):
             self.current_target_text = self._get_or_create_generated_text(generated_kind)
         else:
             self.current_target_text = candidate
-        self.target_text.setText(self.current_target_text)
+        self.target_text.setText(html.escape(self.current_target_text))
         self.reset_exercise()
         self._save_progress()
 
     def regenerate_generated_text(self) -> None:
         """Generate new text for generated drill lessons."""
+        if self.mode != "lesson":
+            return
         lesson = self.lessons[self.current_lesson_index]
         generated_kind = self._get_generated_lesson_kind(lesson, lesson.texts[0] if lesson.texts else "")
+        if generated_kind == "weak":
+            self.load_current_text()
+            return
         if generated_kind:
             # Clear persisted text and generate new content for the active drill.
             if generated_kind == "developer":
@@ -801,9 +826,14 @@ class TypingPracticeApp(QMainWindow):
             return "random"
         if candidate == "__DEVELOPER__" or lesson.title == "Developer Keys":
             return "developer"
+        if candidate == "__WEAK_KEYS__":
+            return "weak"
         return None
 
     def _get_or_create_generated_text(self, generated_kind: str) -> str:
+        if generated_kind == "weak":
+            self._weak_profile = analyze_weak_keys(self.progress_store.get_weak_key_rounds())
+            return self._generate_practice_text("weak")
         if generated_kind == "developer":
             persisted = self.progress_store.get_developer_text(self.current_lesson_index)
             current_length = self._developer_keys_length()
@@ -871,7 +901,9 @@ class TypingPracticeApp(QMainWindow):
         if not kind:
             return
 
-        if kind == "random":
+        if kind == "weak":
+            extra = generate_weak_key_text([item.key for item in self._weak_profile.focus], chunk_size)
+        elif kind == "random":
             if self._adaptive_drills:
                 errors = self.progress_store.get_key_error_stats()
                 attempts = self.progress_store.get_key_attempt_stats()
@@ -903,7 +935,9 @@ class TypingPracticeApp(QMainWindow):
 
         self.session.reset()
         self._previous_typed_length = 0
-        self._key_stats_recorded_length = 0
+        self._weak_round_id = str(uuid4())
+        self._weak_round_saved = False
+        self._answer_imported = False
         self._last_highlighted_length = 0
         self._cached_target = ""
         self._last_target_html = ""
@@ -922,11 +956,70 @@ class TypingPracticeApp(QMainWindow):
 
         self.update_display()
         self._update_keyboard_highlight()
+        if self._active_generated_kind() == "weak":
+            self._show_weak_key_status()
         self.typing_input.setFocus()
+
+    def _show_weak_key_status(self) -> None:
+        profile = self._weak_profile
+        ready = bool(profile.focus)
+        self.typing_input.setReadOnly(not ready or self._round_complete)
+        self.next_button.setEnabled(ready)
+        self.regenerate_button.setEnabled(ready)
+        if profile.rounds < MIN_ROUNDS:
+            message = (f"Collecting practice: {profile.rounds}/{MIN_ROUNDS} rounds. "
+                       "Finish listed drills to build your personal key statistics.")
+        elif not ready:
+            message = ("More practice needed: mistaken characters need at least 20 attempts."
+                       if profile.needs_more_attempts else
+                       "No eligible mistakes in your recent practice. Keep practicing listed drills.")
+        else:
+            details = "; ".join(
+                f"<b>{html.escape(item.key)}</b>: {item.errors}/{item.attempts} mistakes/attempts"
+                for item in profile.focus
+            )
+            message = f"Based on {profile.rounds} recent rounds. Focus: {details}"
+        self._update_description(message, mode="default")
+
+    def _mark_answer_imported(self) -> None:
+        self._answer_imported = True
+
+    def _on_user_edit(self, insertions: list) -> None:
+        if self._round_complete:
+            return
+        if not self.typing_input.toPlainText().startswith(self.session.typed_text):
+            # Repaint changed positions when editing inside the existing prefix.
+            self._last_target_typed_len = 0
+            self._last_highlighted_length = 0
+        for start, inserted in insertions:
+            for offset, char in enumerate(inserted):
+                index = start + offset
+                if index < len(self.current_target_text):
+                    expected = self.current_target_text[index]
+                    self.session.record_key_attempt(expected)
+                    if char != expected:
+                        self.session.record_key_error(expected)
+        self.on_text_changed()
+
+    def _save_weak_key_round(self) -> None:
+        if (self.mode != "lesson" or self.warmup_mode or self._answer_imported
+                or self._weak_round_saved or not self.session.key_attempts):
+            return
+        self.progress_store.record_weak_key_round(
+            self._weak_round_id, datetime.now().isoformat(), self.current_lesson_index,
+            self.session.key_errors, self.session.key_attempts,
+        )
+        self._weak_round_saved = True
 
     def on_text_changed(self) -> None:
         """Handle updates when the user types or deletes characters."""
+        if self.typing_input.editing:
+            return  # The user-edit signal records attempts before checking completion.
         self.session.typed_text = self.typing_input.toPlainText()
+        self.session.errors = sum(
+            actual != expected
+            for actual, expected in zip(self.session.typed_text, self.current_target_text)
+        )
 
         if not self.session.is_active and self.session.typed_text:
             self.session.begin()
@@ -990,8 +1083,6 @@ class TypingPracticeApp(QMainWindow):
         target = self.current_target_text
         typed = self.session.typed_text
 
-        self._record_new_key_stats(target, typed)
-
         highlighted_text, mismatches = self._build_target_highlight(target, typed)
         self.session.errors = mismatches
 
@@ -1017,35 +1108,16 @@ class TypingPracticeApp(QMainWindow):
         self._update_progress_indicators(typed, target)
         self._highlight_input(target, typed)
 
-    def _record_new_key_stats(self, target: str, typed: str) -> None:
-        """Record key attempt/error stats once per newly confirmed character.
-
-        Called on every render tick, so positions already counted must be
-        skipped — otherwise a keystroke re-records every prior character in
-        the typed prefix, inflating the per-key totals quadratically.
-        """
-        confirmed_length = min(len(typed), len(target))
-
-        if confirmed_length < self._key_stats_recorded_length:
-            # Backspaced past previously-counted positions; they'll be
-            # recounted as fresh attempts if retyped.
-            self._key_stats_recorded_length = confirmed_length
-            return
-
-        for index in range(self._key_stats_recorded_length, confirmed_length):
-            expected = target[index]
-            self.session.record_key_attempt(expected)
-            if typed[index] != expected:
-                self.session.record_key_error(expected)
-
-        self._key_stats_recorded_length = confirmed_length
-
     def _build_target_highlight(self, target: str, typed: str) -> Tuple[str, int]:
         typed_len = len(typed)
         target_changed = target != self._cached_target
         if target_changed:
             self._cached_target = target
-            self._cached_target_parts = [self._format_char(char) for char in target]
+            weak_drill = self._active_generated_kind() == "weak"
+            self._cached_target_parts = [
+                " " if weak_drill and char == " " else self._format_char(char)
+                for char in target
+            ]
             self._cached_target_styles = [""] * len(target)
             self._cached_target_html_parts = [""] * len(target)
             self._last_target_typed_len = 0
@@ -1086,7 +1158,17 @@ class TypingPracticeApp(QMainWindow):
             styled_char = self._cached_target_parts[index]
             self._cached_target_html_parts[index] = style_templates[style].format(char=styled_char)
 
-        return "".join(self._cached_target_html_parts[: len(target)]), errors
+        start, end = 0, len(target)
+        if self._active_generated_kind() == "weak":
+            # Bound long timed targets to a readable window. Move halfway through
+            # a page so the next groups are already visible before the boundary.
+            groups = list(re.finditer(r"\S+", target))
+            if len(groups) > GROUP_COUNT:
+                current_group = max(0, sum(group.start() <= typed_len for group in groups) - 1)
+                first = (current_group // (GROUP_COUNT // 2)) * (GROUP_COUNT // 2)
+                start = groups[first].start()
+                end = groups[min(first + GROUP_COUNT, len(groups)) - 1].end()
+        return "".join(self._cached_target_html_parts[start:end]), errors
 
     @staticmethod
     def _format_char(char: str) -> str:
@@ -1204,6 +1286,11 @@ class TypingPracticeApp(QMainWindow):
         self.error_label.setText(f"Errors: {total_errors}")
 
     def _generate_practice_text(self, generated_kind: str) -> str:
+        if generated_kind == "weak":
+            return generate_weak_key_text(
+                [item.key for item in self._weak_profile.focus],
+                self._timed_word_budget(GROUP_COUNT),
+            )
         if generated_kind == "random":
             base_count = self.progress_store.get_setting(
                 "random_word_count", DEFAULT_RANDOM_WORD_COUNT
@@ -1314,6 +1401,7 @@ class TypingPracticeApp(QMainWindow):
         completed_challenge: Optional[Challenge] = None
 
         if not self.warmup_mode:
+            self._save_weak_key_round()
             lesson_name = (
                 self.lessons[self.current_lesson_index].title
                 if self.mode == "lesson" else "Free Practice"
@@ -1401,7 +1489,10 @@ class TypingPracticeApp(QMainWindow):
             self._save_progress()
 
     def _unlock_text_input(self) -> None:
-        self.typing_input.setReadOnly(False)
+        if self._active_generated_kind() == "weak":
+            self.typing_input.setReadOnly(self._round_complete or not self._weak_profile.focus)
+        else:
+            self.typing_input.setReadOnly(False)
         self.typing_input.setFocus()
 
     def _cursor_is_at_target_end(self) -> bool:
@@ -1434,6 +1525,12 @@ class TypingPracticeApp(QMainWindow):
     def next_text(self) -> None:
         """Move to the next text or lesson, or congratulate the user."""
         if self.mode != "lesson":
+            return
+
+        if self.current_target_text and len(self.session.typed_text) >= len(self.current_target_text):
+            self._save_weak_key_round()
+        if self._active_generated_kind() == "weak":
+            self.load_current_text()
             return
 
         lesson = self.lessons[self.current_lesson_index]

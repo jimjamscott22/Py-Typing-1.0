@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from core.models import SessionRecord
+from core.weak_keys import WINDOW_SIZE
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -137,6 +138,14 @@ class ProgressStore:
                 key TEXT NOT NULL,
                 error_count INTEGER NOT NULL,
                 attempt_count INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS weak_key_rounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                round_id TEXT NOT NULL UNIQUE,
+                timestamp TEXT NOT NULL,
+                lesson_index INTEGER NOT NULL,
+                errors_json TEXT NOT NULL,
+                attempts_json TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_session_key_errors_lesson
                 ON session_key_errors (lesson_index);
@@ -672,6 +681,37 @@ class ProgressStore:
                     f"INSERT OR REPLACE INTO {table} (key, count) VALUES (?, ?)",
                     (str(key), int(new_total)),
                 )
+
+    def record_weak_key_round(
+        self, round_id: str, timestamp: str, lesson_index: int,
+        errors: Dict[str, int], attempts: Dict[str, int],
+    ) -> None:
+        """Persist a complete eligible round once, retaining its successes too."""
+        if lesson_index < 0 or not attempts:
+            return
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR IGNORE INTO weak_key_rounds
+                   (round_id, timestamp, lesson_index, errors_json, attempts_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (round_id, timestamp, lesson_index, json.dumps(errors), json.dumps(attempts)),
+            )
+            self._conn.execute(
+                """DELETE FROM weak_key_rounds WHERE id NOT IN
+                   (SELECT id FROM weak_key_rounds ORDER BY id DESC LIMIT ?)""",
+                (WINDOW_SIZE,),
+            )
+
+    def get_weak_key_rounds(self) -> List[dict]:
+        """Return the separate complete-data window, oldest first."""
+        return [
+            {"round_id": row[0], "timestamp": row[1], "lesson_index": row[2],
+             "errors": json.loads(row[3]), "attempts": json.loads(row[4])}
+            for row in self._conn.execute(
+                """SELECT round_id, timestamp, lesson_index, errors_json, attempts_json
+                   FROM weak_key_rounds ORDER BY id"""
+            )
+        ]
 
     def add_session_key_stats(
         self,

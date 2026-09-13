@@ -123,4 +123,9 @@ def build_lessons() -> List[Lesson]:
             description="Practice developer symbols, operators, and code-friendly key sequences",
             texts=["__DEVELOPER__"],
         ),
+        Lesson(
+            title="Weak Key Practice",
+            description="Practice key sequences and words based on your recent mistakes",
+            texts=["__WEAK_KEYS__"],
+        ),
     ]

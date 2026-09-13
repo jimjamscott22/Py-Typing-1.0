@@ -123,6 +123,33 @@ def generate_text(word_count: int = 25) -> str:
     return " ".join(random.choice(_COMMON_WORDS) for _ in range(word_count))
 
 
+def generate_weak_key_text(keys: List[str], group_count: int = 24) -> str:
+    """Interleave key sequences and words, covering every focus character.
+
+    All focus keys receive turns so a rare symbol cannot disappear by chance.
+    Letter words preserve the target's case; digits and symbols decorate words.
+    """
+    keys = list(dict.fromkeys(
+        key for key in keys
+        if len(key) == 1 and key.isprintable() and not key.isspace()
+    ))
+    if not keys or group_count <= 0:
+        return ""
+    groups: List[str] = []
+    for index in range((group_count + 1) // 2):
+        key = keys[index % len(keys)]
+        other = keys[(index + 1) % len(keys)]
+        groups.append(key * 3 if index % 2 == 0 else (key + other) * 2)
+        pool = [word for word in _COMMON_WORDS if key.lower() in word.lower()]
+        if key.isalpha() and pool:
+            word = random.choice(pool)
+            word = "".join(key if char.lower() == key.lower() else char for char in word)
+        else:
+            word = random.choice(_COMMON_WORDS) + key
+        groups.append(word)
+    return " ".join(groups[:group_count])
+
+
 def generate_developer_text(token_count: int = 20, mode: str = "symbol-heavy") -> str:
     """Return a random sequence of developer-oriented keys and snippets.
 

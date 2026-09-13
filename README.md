@@ -21,6 +21,7 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - **Visual progress charts** with matplotlib
 - **Keyboard error heatmap** showing problem keys
 - **Developer Keys** practice mode for symbols and code-friendly drills
+- **Weak Key Practice** mixes key sequences and words based on recent typing mistakes
 - Strict mode to prevent backspacing
 - Free practice mode for custom text, with import from a `.txt` file
 
@@ -62,13 +63,42 @@ You can now distribute or run the standalone executable without needing Python i
 - Use a consistent practice schedule (e.g., 10–15 minutes daily).
 - Try different texts to work on varied vocabulary and punctuation.
 
+## Weak Key Practice
+
+Complete five listed-drill rounds after installing this feature to build a fresh
+baseline. Existing progress and history are preserved. The new drill uses the last
+30 eligible rounds and targets up to five characters with at least 20 attempts
+and one mistake each. Uppercase, lowercase, digits, and punctuation are distinct;
+spaces separate practice groups.
+
+Each untimed drill has 24 groups, alternating short key sequences and words.
+The description shows each selected character's mistakes/attempts and how many
+rounds informed the selection. **Generate New Drill** or **Next Text** generates
+another round; **Reset** retries the same text. Timed practice extends the text
+using the same focus until the round ends. This drill works independently of the
+adaptive Random Words setting.
+Long timed drills show a moving view of up to 24 groups, keeping upcoming text
+visible without pushing the keyboard and controls off screen.
+
+Exact completions, timed finishes, and drills you advance past after reaching the
+end with mistakes all contribute. Finished error rounds do not gain completion
+rewards. Warmups, Free Practice, abandoned partial rounds, and rounds containing
+pasted or dropped answers do not contribute. Successful attempts are recorded
+alongside errors, so continued practice can lower a character's ranking.
+
+The local statistical score is `(errors + 1) / (attempts + 20)`, with ties resolved
+by more attempts, then character order. It moderates small samples without an ML
+dependency. The thresholds and prior are starting defaults, not guarantees of
+statistical precision. If no characters qualify, the drill explains whether more
+attempts are needed or no eligible mistakes remain.
+
 ## Running the tests
 
 ```bash
 uv run pytest -v
 ```
 
-The suite covers scoring (`test_scoring.py`), per-lesson best-WPM tracking (`test_best_wpm.py`), and end-to-end persistence/UI smoke tests (`test_enhancements.py`).
+The suite covers scoring (`test_scoring.py`), per-lesson best-WPM tracking (`test_best_wpm.py`), persistence/UI smoke tests (`test_enhancements.py`), and weak-key analysis, storage, generation, and input handling (`test_weak_keys.py`).
 
 ## Where your progress lives
 
