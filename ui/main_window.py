@@ -1,10 +1,9 @@
 import html
 import re
 import time
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import List, Optional, Tuple
-from uuid import uuid4
 
 from PyQt6.QtCore import Qt, QTimer, QEvent
 from PyQt6.QtGui import QFont, QTextCursor
@@ -22,8 +21,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.models import TypingSession, SessionRecord
+from core.models import TypingSession
 from core.persistence import ProgressStore
+from core.session_controller import SessionController
 from core.lessons import build_lessons
 from core.wordgen import (
     generate_text,
@@ -36,7 +36,7 @@ from core.audio import CelebrationSoundManager
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
 from core.analytics import compute_streaks, get_practice_recommendations
-from core.achievements import ACHIEVEMENTS_BY_ID, build_achievement_progress
+from core.achievements import ACHIEVEMENTS_BY_ID
 from core.challenges import Challenge, evaluate_challenge_progress, get_daily_challenge
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
@@ -91,11 +91,8 @@ class TypingPracticeApp(QMainWindow):
         self._pre_warmup_state: dict | None = None
         self._previous_typed_length = 0  # Track for backspace detection
         self._weak_profile = WeakKeyProfile(0, ())
-        self._weak_round_id = str(uuid4())
-        self._weak_round_saved = False
         self._answer_imported = False
         self._pending_display_update = False  # Guard for deferred display refresh
-        self._round_complete = False  # True after a round finishes; Space advances to the next
         self._last_highlighted_length = 0  # Incremental input highlighting cursor
         self._cached_target = ""
         self._cached_target_parts: List[str] = []
@@ -123,10 +120,14 @@ class TypingPracticeApp(QMainWindow):
         self.progress_store = ProgressStore(progress_path)
 
         self.lessons = build_lessons()
-        self._sync_achievements()
-        self.session = TypingSession()
-
         self.best_wpm = BestWpmTracker.from_raw(self.progress_store.data.get("best_wpm"))
+        self.controller = SessionController(
+            self.progress_store,
+            self.best_wpm,
+            self._backspace_penalty,
+            self._backspace_accuracy_weight,
+        )
+        self._sync_achievements()
 
         self.current_lesson_index = self._clamp_index(
             self._safe_int(self.progress_store.data.get("current_lesson_index", 0)),
@@ -153,6 +154,18 @@ class TypingPracticeApp(QMainWindow):
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    @property
+    def session(self) -> TypingSession:
+        return self.controller.session
+
+    @property
+    def _round_complete(self) -> bool:
+        return self.controller.round_complete
+
+    @_round_complete.setter
+    def _round_complete(self, value: bool) -> None:
+        self.controller.round_complete = value
 
     def _configure_window(self) -> None:
         self.setWindowTitle("Touch Typing Practice")
@@ -558,6 +571,8 @@ class TypingPracticeApp(QMainWindow):
         self._backspace_accuracy_weight = self.progress_store.get_setting(
             "backspace_accuracy_weight", DEFAULT_BACKSPACE_ACCURACY_WEIGHT
         )
+        self.controller.backspace_penalty = self._backspace_penalty
+        self.controller.backspace_accuracy_weight = self._backspace_accuracy_weight
         self._strict_mode = self.progress_store.get_setting("strict_mode", DEFAULT_STRICT_MODE)
         self._timed_mode_seconds = self.progress_store.get_setting(
             "timed_mode_seconds", DEFAULT_TIMED_MODE_SECONDS
@@ -925,16 +940,13 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.blockSignals(False)
         self.typing_input.setReadOnly(False)
 
-        self.session.reset()
+        self.controller.reset()
         self._previous_typed_length = 0
-        self._weak_round_id = str(uuid4())
-        self._weak_round_saved = False
         self._answer_imported = False
         self._last_highlighted_length = 0
         self._cached_target = ""
         self._last_target_html = ""
         self._last_target_typed_len = 0
-        self._round_complete = False
         self._stop_timed_mode()
         self._update_backspace_label()
 
@@ -983,56 +995,30 @@ class TypingPracticeApp(QMainWindow):
             # Repaint changed positions when editing inside the existing prefix.
             self._last_target_typed_len = 0
             self._last_highlighted_length = 0
-        for start, inserted in insertions:
-            for offset, char in enumerate(inserted):
-                index = start + offset
-                if index < len(self.current_target_text):
-                    expected = self.current_target_text[index]
-                    self.session.record_key_attempt(expected)
-                    if char != expected:
-                        self.session.record_key_error(expected)
+        self.controller.record_edit(insertions, self.current_target_text)
         self.on_text_changed()
-
-    def _save_weak_key_round(self) -> None:
-        if (self.mode != "lesson" or self.warmup_mode or self._answer_imported
-                or self._weak_round_saved or not self.session.key_attempts):
-            return
-        self.progress_store.record_weak_key_round(
-            self._weak_round_id, datetime.now().isoformat(), self.current_lesson_index,
-            self.session.key_errors, self.session.key_attempts,
-        )
-        self._weak_round_saved = True
 
     def on_text_changed(self) -> None:
         """Handle updates when the user types or deletes characters."""
         if self.typing_input.editing:
             return  # The user-edit signal records attempts before checking completion.
-        self.session.typed_text = self.typing_input.toPlainText()
-        self.session.errors = sum(
-            actual != expected
-            for actual, expected in zip(self.session.typed_text, self.current_target_text)
-        )
-
-        if not self.session.is_active and self.session.typed_text:
-            self.session.begin()
+        typed_text = self.typing_input.toPlainText()
+        outcome = self.controller.update_typed_text(typed_text, self.current_target_text)
+        if outcome.just_began:
             self._start_timed_mode_if_enabled()
 
-        self._previous_typed_length = len(self.session.typed_text)
+        self._previous_typed_length = len(typed_text)
 
         if not self._pending_display_update:
             self._pending_display_update = True
             QTimer.singleShot(0, self._flush_display)
 
         if self._timed_mode_active and self._active_generated_kind():
-            remaining = len(self.current_target_text) - len(self.session.typed_text)
+            remaining = len(self.current_target_text) - len(typed_text)
             if remaining <= 40:
                 self._extend_timed_target()
 
-        if (
-            not self._round_complete
-            and self.session.typed_text == self.current_target_text
-            and self.current_target_text
-        ):
+        if outcome.just_completed:
             if self._timed_mode_active and self._active_generated_kind():
                 self._extend_timed_target()
             else:
@@ -1358,105 +1344,63 @@ class TypingPracticeApp(QMainWindow):
         self._finalize_session(timed_out=False)
 
     def _finalize_session(self, *, timed_out: bool) -> None:
-        """Record session results for exact completion or timed expiry."""
-        elapsed_time = time.time() - self.session.start_time if self.session.start_time else 0
-        wpm = self._calculate_wpm(self.session.typed_text, elapsed_time)
-        accuracy = self._calculate_accuracy(self.session.typed_text)
+        """Record session results for exact completion or timed expiry, then update the UI."""
+        lesson_name = (
+            self.lessons[self.current_lesson_index].title
+            if self.mode == "lesson" else "Free Practice"
+        )
+        result = self.controller.finalize(
+            timed_out=timed_out,
+            target_text=self.current_target_text,
+            mode=self.mode,
+            warmup_mode=self.warmup_mode,
+            answer_imported=self._answer_imported,
+            lesson_index=self.current_lesson_index,
+            text_index=self.current_text_index,
+            lesson_name=lesson_name,
+            lesson_text_counts=[len(lesson.texts) for lesson in self.lessons],
+        )
 
         self.typing_input.setReadOnly(True)
         self.keyboard_widget.clear_highlights()
-        self._round_complete = True
-
-        backspace_count = self.session.backspace_count
-        wpm_penalty = backspace_count * self._backspace_penalty
 
         if timed_out:
             completion_msg = (
                 f"⏱ Time's up!\n\n"
-                f"Speed: {wpm} WPM\n"
-                f"Accuracy: {accuracy:.1f}%\n"
-                f"Time: {elapsed_time:.1f} seconds\n"
-                f"Backspaces: {backspace_count}"
+                f"Speed: {result.wpm} WPM\n"
+                f"Accuracy: {result.accuracy:.1f}%\n"
+                f"Time: {result.elapsed_seconds:.1f} seconds\n"
+                f"Backspaces: {result.backspace_count}"
             )
         else:
             completion_msg = (
                 f"🎉 Excellent work!\n\n"
-                f"Speed: {wpm} WPM\n"
-                f"Accuracy: {accuracy:.1f}%\n"
-                f"Time: {elapsed_time:.1f} seconds\n"
-                f"Backspaces: {backspace_count}"
+                f"Speed: {result.wpm} WPM\n"
+                f"Accuracy: {result.accuracy:.1f}%\n"
+                f"Time: {result.elapsed_seconds:.1f} seconds\n"
+                f"Backspaces: {result.backspace_count}"
             )
-        if backspace_count > 0:
-            completion_msg += f" (penalty: -{wpm_penalty} WPM)"
+        if result.backspace_count > 0:
+            completion_msg += f" (penalty: -{result.wpm_penalty} WPM)"
 
-        newly_unlocked_ids: List[str] = []
-        completed_challenge: Optional[Challenge] = None
-
-        if not self.warmup_mode:
-            self._save_weak_key_round()
-            lesson_name = (
-                self.lessons[self.current_lesson_index].title
-                if self.mode == "lesson" else "Free Practice"
-            )
-            record = SessionRecord(
-                timestamp=datetime.now().isoformat(),
-                lesson_index=self.current_lesson_index if self.mode == "lesson" else -1,
-                text_index=self.current_text_index,
-                lesson_name=lesson_name,
-                wpm=wpm,
-                accuracy=round(accuracy, 1),
-                errors=self.session.errors + max(
-                    len(self.session.typed_text) - len(self.current_target_text), 0
-                ),
-                backspaces=backspace_count,
-                duration_seconds=round(elapsed_time, 1),
-                text_length=len(self.session.typed_text) if timed_out else len(self.current_target_text),
-            )
-            self.progress_store.add_session_record(record)
-
-            if self.mode == "lesson" and not timed_out:
-                self.progress_store.mark_lesson_text_completed(
-                    self.current_lesson_index,
-                    self.current_text_index,
-                    record.timestamp,
-                )
-
-            if self.session.key_errors:
-                self.progress_store.update_key_error_stats(self.session.key_errors)
-            if self.session.key_attempts:
-                self.progress_store.update_key_attempt_stats(self.session.key_attempts)
-
-            if self.session.key_errors:
-                self.progress_store.add_session_key_stats(
-                    record.timestamp,
-                    record.lesson_index,
-                    lesson_name,
-                    self.session.key_errors,
-                    self.session.key_attempts,
-                )
-
-            if self.mode == "lesson":
-                self._record_best_wpm(wpm)
-
-            newly_unlocked_ids = self._sync_achievements()
-            self.progress_store.add_coins(SESSION_COIN_REWARD)
-            completed_challenge = self._sync_daily_challenge()
-            self.progress_store.save()
+        if result.best_wpm_improved:
+            self._update_best_wpm_label()
+            self._save_progress()
 
         self._refresh_progress_strip()
 
-        if newly_unlocked_ids:
+        if result.newly_unlocked_ids:
             badge_lines = [
                 f"{ACHIEVEMENTS_BY_ID[badge_id].icon} {ACHIEVEMENTS_BY_ID[badge_id].name}"
-                for badge_id in newly_unlocked_ids
+                for badge_id in result.newly_unlocked_ids
                 if badge_id in ACHIEVEMENTS_BY_ID
             ]
             completion_msg += "\n\n🏅 New badge unlocked!\n" + "\n".join(badge_lines)
 
-        if completed_challenge:
+        if result.completed_challenge:
             completion_msg += (
-                f"\n\n{completed_challenge.icon} Daily challenge complete: "
-                f"{completed_challenge.title}! +{DAILY_CHALLENGE_COIN_REWARD} coins"
+                f"\n\n{result.completed_challenge.icon} Daily challenge complete: "
+                f"{result.completed_challenge.title}! +{DAILY_CHALLENGE_COIN_REWARD} coins"
             )
 
         completion_msg += "\n\nPress Space to continue ➡️"
@@ -1473,12 +1417,6 @@ class TypingPracticeApp(QMainWindow):
             QTimer.singleShot(2000, self._advance_warmup_round)
         else:
             QTimer.singleShot(2000, self._unlock_text_input)
-
-    def _record_best_wpm(self, wpm: int) -> None:
-        lesson_key = str(self.current_lesson_index)
-        if self.best_wpm.update(lesson_key, wpm):
-            self._update_best_wpm_label()
-            self._save_progress()
 
     def _unlock_text_input(self) -> None:
         if self._active_generated_kind() == "weak":
@@ -1520,7 +1458,9 @@ class TypingPracticeApp(QMainWindow):
             return
 
         if self.current_target_text and len(self.session.typed_text) >= len(self.current_target_text):
-            self._save_weak_key_round()
+            self.controller.save_weak_key_round(
+                self.mode, self.warmup_mode, self._answer_imported, self.current_lesson_index,
+            )
         if self._active_generated_kind() == "weak":
             self.load_current_text()
             return
@@ -1578,23 +1518,8 @@ class TypingPracticeApp(QMainWindow):
 
     def _sync_achievements(self) -> List[str]:
         """Persist any achievements earned by the current recorded progress."""
-        unlocked = self.progress_store.get_unlocked_achievements()
-        statuses = build_achievement_progress(
-            self.progress_store.get_session_history(),
-            unlocked,
-            self.progress_store.get_completed_lesson_texts(),
-            [len(lesson.texts) for lesson in self.lessons],
-        )
-        earned_ids = [
-            status.achievement.id
-            for status in statuses
-            if status.earned and status.achievement.id not in unlocked
-        ]
-        if not earned_ids:
-            return []
-        return self.progress_store.unlock_achievements(
-            earned_ids,
-            datetime.now().isoformat(),
+        return self.controller.sync_achievements(
+            [len(lesson.texts) for lesson in self.lessons]
         )
 
     def _show_challenges(self) -> None:
@@ -1605,28 +1530,7 @@ class TypingPracticeApp(QMainWindow):
 
     def _sync_daily_challenge(self) -> Optional[Challenge]:
         """Award coins once when today's challenge is newly completed."""
-        today_str = date.today().isoformat()
-        if self.progress_store.is_challenge_completed(today_str):
-            return None
-
-        today = date.today()
-        challenge = get_daily_challenge(today)
-        progress = evaluate_challenge_progress(
-            challenge, self.progress_store.get_session_history(), today
-        )
-        if not progress.completed:
-            return None
-
-        newly_recorded = self.progress_store.mark_challenge_completed(
-            today_str,
-            challenge.id,
-            datetime.now().isoformat(),
-            coin_reward=DAILY_CHALLENGE_COIN_REWARD,
-        )
-        if not newly_recorded:
-            return None
-
-        return challenge
+        return self.controller.sync_daily_challenge()
 
     def _show_settings(self) -> None:
         """Show the settings dialog."""
