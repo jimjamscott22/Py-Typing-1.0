@@ -586,23 +586,6 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
 
-        # Refresh generated drills only after Settings save (not on startup).
-        if refresh_generated and self.mode == "lesson" and self.lessons:
-            current_lesson = self.lessons[self.current_lesson_index]
-            generated_kind = self._get_generated_lesson_kind(
-                current_lesson, current_lesson.texts[0] if current_lesson.texts else ""
-            )
-            if generated_kind == "developer":
-                self.current_target_text = ""
-                self.progress_store.clear_developer_text(self.current_lesson_index)
-                self.load_current_text()
-            elif generated_kind == "random":
-                self.current_target_text = ""
-                self.progress_store.clear_random_text(self.current_lesson_index)
-                self.load_current_text()
-            elif generated_kind == "weak":
-                self.load_current_text()
-
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
         theme = self.current_theme
