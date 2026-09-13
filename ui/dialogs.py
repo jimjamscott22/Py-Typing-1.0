@@ -934,7 +934,7 @@ class ChallengesDialog(QDialog):
 class SettingsDialog(QDialog):
     """Settings dialog for configuring app behavior."""
 
-    settings_changed = pyqtSignal()
+    settings_changed = pyqtSignal(object)
 
     def __init__(self, progress_store: ProgressStore, parent=None):
         super().__init__(parent)
@@ -1110,19 +1110,25 @@ class SettingsDialog(QDialog):
 
     def _save_settings(self) -> None:
         """Save all settings and emit change signal."""
-        self.progress_store.set_setting("backspace_penalty", self.wpm_penalty_slider.value())
-        self.progress_store.set_setting("backspace_accuracy_weight", self.acc_weight_slider.value() / 10)
-        self.progress_store.set_setting("strict_mode", self.strict_mode_check.isChecked())
-        self.progress_store.set_setting("theme", self.theme_combo.currentText())
-        self.progress_store.set_setting("show_celebration", self.celebration_check.isChecked())
-        self.progress_store.set_setting("show_keyboard", self.show_keyboard_check.isChecked())
-        self.progress_store.set_setting("font_size", self.font_size_spin.value())
-        self.progress_store.set_setting("random_word_count", self.word_count_spin.value())
-        self.progress_store.set_setting("adaptive_drills", self.adaptive_drills_check.isChecked())
-        self.progress_store.set_setting(
-            "timed_mode_seconds", self.timed_mode_combo.currentData()
+        values = {
+            "backspace_penalty": self.wpm_penalty_slider.value(),
+            "backspace_accuracy_weight": self.acc_weight_slider.value() / 10,
+            "strict_mode": self.strict_mode_check.isChecked(),
+            "theme": self.theme_combo.currentText(),
+            "show_celebration": self.celebration_check.isChecked(),
+            "show_keyboard": self.show_keyboard_check.isChecked(),
+            "font_size": self.font_size_spin.value(),
+            "random_word_count": self.word_count_spin.value(),
+            "adaptive_drills": self.adaptive_drills_check.isChecked(),
+            "timed_mode_seconds": self.timed_mode_combo.currentData(),
+            "developer_keys_length": self.developer_length_spin.value(),
+            "developer_keys_mode": self.developer_mode_combo.currentText(),
+        }
+        changed_keys = frozenset(
+            key for key, value in values.items()
+            if self.progress_store.get_setting(key) != value
         )
-        self.progress_store.set_setting("developer_keys_length", self.developer_length_spin.value())
-        self.progress_store.set_setting("developer_keys_mode", self.developer_mode_combo.currentText())
-        self.settings_changed.emit()
+        for key, value in values.items():
+            self.progress_store.set_setting(key, value)
+        self.settings_changed.emit(changed_keys)
         self.accept()
