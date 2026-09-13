@@ -22,10 +22,10 @@ build_exe.bat    # output: dist/Typing Practice.exe
 ## Running tests
 
 ```bash
-uv run pytest test_enhancements.py -v
+uv run pytest test_enhancements.py test_session_controller.py -v
 ```
 
-There is only one test file (`test_enhancements.py`, a flat top-level file). No coverage tooling is configured.
+Two flat top-level test files: `test_enhancements.py` (persistence, analytics, Qt-integration behavior via a headless `window` fixture) and `test_session_controller.py` (pure `SessionController` logic, no Qt required). No coverage tooling is configured.
 
 Smoke-test Qt UI headlessly without launching the GUI:
 
@@ -43,6 +43,7 @@ ui/
   dialogs.py         # StatisticsDialog, SettingsDialog
 core/
   models.py          # Lesson, TypingSession, SessionRecord dataclasses
+  session_controller.py  # SessionController — reset/completion/typed-text lifecycle, no Qt
   persistence.py     # ProgressStore — SQLite-backed progress + settings (granular writes)
   lessons.py         # build_lessons() — returns hardcoded Lesson list
   wordgen.py         # generate_text(n) — random word drills
@@ -53,7 +54,7 @@ core/
   constants.py       # Default settings values and KEY_FINGER_MAP
 ```
 
-**Key data flow:** `TypingPracticeApp` owns a `TypingSession` (in-memory state) and a `ProgressStore` (SQLite-backed settings + history). On every keystroke, `on_text_changed` updates the session, recalculates WPM/accuracy, and refreshes the UI. Completion triggers `on_completion`, which writes a `SessionRecord` to `ProgressStore` and calls `save()`.
+**Key data flow:** `TypingPracticeApp` owns every widget and delegates session lifecycle to a `SessionController` (`core/session_controller.py`), which owns the in-progress `TypingSession`, the round-complete flag, and weak-key-round bookkeeping, and talks to `ProgressStore` directly — it takes no widget references, only plain strings/bools handed to it by the window. On every keystroke, `on_text_changed` reads the input box and calls `controller.update_typed_text(...)`, then reacts to the returned `EditOutcome` to trigger timed-mode start / round completion. Completion calls `controller.finalize(...)`, which writes a `SessionRecord` to `ProgressStore`, syncs achievements/daily-challenge/coins, and returns a `FinalizeResult` that the window turns into label/overlay updates. `session` and `_round_complete` on `TypingPracticeApp` are facade properties over the controller, kept for the many existing read sites throughout the file.
 
 **Settings** are stored in the SQLite `settings` table (mirrored in `data["settings"]`) and accessed via `ProgressStore.get_setting` / `set_setting`. Defaults live in `core/constants.py`.
 
