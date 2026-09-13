@@ -214,3 +214,4 @@ typing_progress.sqlite3
 typing_progress.sqlite3-wal
 typing_progress.sqlite3-shm
 *.json
+docs/superpowers/plans/2026-09-13-session-controller-extraction.md
