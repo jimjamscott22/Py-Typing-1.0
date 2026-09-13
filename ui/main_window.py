@@ -37,7 +37,7 @@ from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.achievements import ACHIEVEMENTS_BY_ID
-from core.challenges import Challenge, evaluate_challenge_progress, get_daily_challenge
+from core.challenges import evaluate_challenge_progress, get_daily_challenge
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -165,6 +165,10 @@ class TypingPracticeApp(QMainWindow):
     @_round_complete.setter
     def _round_complete(self, value: bool) -> None:
         self.controller.round_complete = value
+
+    @property
+    def _weak_round_id(self) -> str:
+        return self.controller._weak_round_id
 
     def _configure_window(self) -> None:
         self.setWindowTitle("Touch Typing Practice")
@@ -1526,10 +1530,6 @@ class TypingPracticeApp(QMainWindow):
         dialog = ChallengesDialog(self.progress_store, self)
         dialog.exec()
         self._refresh_progress_strip()
-
-    def _sync_daily_challenge(self) -> Optional[Challenge]:
-        """Award coins once when today's challenge is newly completed."""
-        return self.controller.sync_daily_challenge()
 
     def _show_settings(self) -> None:
         """Show the settings dialog."""

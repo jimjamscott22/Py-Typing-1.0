@@ -22,10 +22,10 @@ build_exe.bat    # output: dist/Typing Practice.exe
 ## Running tests
 
 ```bash
-uv run pytest test_enhancements.py test_session_controller.py -v
+uv run pytest -v
 ```
 
-Two flat top-level test files: `test_enhancements.py` (persistence, analytics, Qt-integration behavior via a headless `window` fixture) and `test_session_controller.py` (pure `SessionController` logic, no Qt required). No coverage tooling is configured.
+Five flat top-level test files: `test_enhancements.py`, `test_weak_keys.py`, `test_best_wpm.py`, `test_scoring.py` (Qt-integration behavior via a headless `window` fixture, persistence, analytics, scoring) and `test_session_controller.py` (pure `SessionController` logic, no Qt required). No coverage tooling is configured.
 
 Smoke-test Qt UI headlessly without launching the GUI:
 
