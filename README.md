@@ -20,6 +20,7 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - **5 beautiful themes** (Light, Dark, Solarized, Nord, Dracula)
 - **Visual progress charts** with matplotlib
 - **Keyboard error heatmap** showing problem keys
+- **Bigram/trigram transition timing** shows which two- and three-character sequences slow you down most
 - **Developer Keys** practice mode for symbols and code-friendly drills
 - **Weak Key Practice** mixes key sequences and words based on recent typing mistakes
 - Strict mode to prevent backspacing
@@ -92,13 +93,23 @@ dependency. The thresholds and prior are starting defaults, not guarantees of
 statistical precision. If no characters qualify, the drill explains whether more
 attempts are needed or no eligible mistakes remain.
 
+## Slow transition analysis
+
+Statistics → **⌨️ Transitions** ranks the two- and three-character sequences
+(e.g. `th`, `ion`) that take you longest to type, separate from accuracy.
+Only genuine manual typing counts: correct, adjacent characters typed within
+2 seconds of each other, from completed sessions (warmup and pasted/dropped
+text are excluded). Rankings need at least 5 recorded observations of a
+sequence, so the tab is empty right after installing this feature — complete
+a few normal sessions to start seeing results.
+
 ## Running the tests
 
 ```bash
 uv run pytest -v
 ```
 
-The suite covers scoring (`test_scoring.py`), per-lesson best-WPM tracking (`test_best_wpm.py`), persistence/UI smoke tests (`test_enhancements.py`), and weak-key analysis, storage, generation, and input handling (`test_weak_keys.py`).
+The suite covers scoring (`test_scoring.py`), per-lesson best-WPM tracking (`test_best_wpm.py`), persistence/UI smoke tests (`test_enhancements.py`), weak-key analysis, storage, generation, and input handling (`test_weak_keys.py`), pure session-lifecycle logic (`test_session_controller.py`), and bigram/trigram timing capture and aggregation (`test_transitions.py`).
 
 ## Where your progress lives
 

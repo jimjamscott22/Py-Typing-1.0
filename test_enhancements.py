@@ -10,7 +10,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QGroupBox, QLabel, QTableWidget
 
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.achievements import build_achievement_progress
@@ -18,9 +18,10 @@ from core.challenges import CHALLENGE_TEMPLATES, evaluate_challenge_progress, ge
 from core.goals import evaluate_daily_goal, evaluate_weekly_goal
 from core.models import SessionRecord
 from core.persistence import ProgressStore
+from core.transitions import TransitionAggregate
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 from core.warmup import WARMUP_PHRASES, get_warmup_text
-from ui.dialogs import SettingsDialog
+from ui.dialogs import SettingsDialog, StatisticsDialog
 from ui.main_window import TypingPracticeApp
 
 
@@ -158,6 +159,147 @@ class TestProgressStore:
         assert reloaded.get_coins_total() == 25
 
 
+class TestTransitionPersistence:
+    def test_opening_a_pre_feature_database_adds_the_table_without_data_loss(
+        self, tmp_path: Path,
+    ):
+        progress_path = tmp_path / "typing_progress.json"
+        pre_feature = ProgressStore(progress_path)
+        pre_feature.add_session_record(
+            SessionRecord(
+                timestamp="2026-01-01T00:00:00",
+                lesson_index=0,
+                text_index=0,
+                lesson_name="Pre-existing",
+                wpm=50,
+                accuracy=98.0,
+                errors=1,
+                backspaces=0,
+                duration_seconds=10.0,
+                text_length=20,
+            )
+        )
+        pre_feature.close()
+
+        reopened = ProgressStore(progress_path)
+        assert reopened.has_transition_data() is False
+        history = reopened.get_session_history()
+        assert len(history) == 1
+        assert history[0]["lesson_name"] == "Pre-existing"
+
+    def test_has_transition_data_reflects_presence(self, store: ProgressStore):
+        assert store.has_transition_data() is False
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 5, 500.0, 80.0, 120.0),
+        ])
+        assert store.has_transition_data() is True
+
+    def test_round_trip_and_weighted_mean_across_sessions(self, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 3, 300.0, 90.0, 110.0),
+        ])
+        _seed_session(store, "2026-01-02T00:00:00", [
+            TransitionAggregate("io", 2, 2, 240.0, 115.0, 125.0),
+        ])
+        summaries = store.get_slowest_transitions(2, min_samples=1)
+        io = next(s for s in summaries if s.sequence == "io")
+        assert io.sample_count == 5
+        # Weighted mean: (300 + 240) / (3 + 2) = 108.0, not (100 + 120) / 2.
+        assert io.average_ms == pytest.approx(108.0)
+
+    def test_bigram_and_trigram_baselines_are_independent(self, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 5, 500.0, 90.0, 110.0),
+            TransitionAggregate("on", 2, 5, 250.0, 40.0, 60.0),
+            TransitionAggregate("ion", 3, 5, 1000.0, 190.0, 210.0),
+        ])
+        bigrams = store.get_slowest_transitions(2, min_samples=1)
+        trigrams = store.get_slowest_transitions(3, min_samples=1)
+        io = next(s for s in bigrams if s.sequence == "io")
+        ion = next(s for s in trigrams if s.sequence == "ion")
+        # Bigram baseline is (500+250)/(5+5)=75; trigram baseline is 1000/5=200.
+        assert io.baseline_delta_percent == pytest.approx(((100.0 / 75.0) - 1) * 100)
+        assert ion.baseline_delta_percent == pytest.approx(0.0)
+
+    def test_minimum_sample_threshold_excludes_thin_sequences(self, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 4, 400.0, 90.0, 110.0),
+        ])
+        assert store.get_slowest_transitions(2) == []
+        assert len(store.get_slowest_transitions(2, min_samples=4)) == 1
+
+    def test_custom_threshold_and_limit_are_respected(self, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 6, 600.0, 90.0, 110.0),
+            TransitionAggregate("on", 2, 6, 300.0, 40.0, 60.0),
+        ])
+        assert len(store.get_slowest_transitions(2, min_samples=1, limit=1)) == 1
+
+    def test_ordering_is_deterministic_on_ties(self, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("on", 2, 5, 500.0, 90.0, 110.0),
+            TransitionAggregate("io", 2, 5, 500.0, 90.0, 110.0),
+        ])
+        summaries = store.get_slowest_transitions(2, min_samples=1)
+        # Equal averages and sample counts fall back to sequence ascending.
+        assert [s.sequence for s in summaries] == ["io", "on"]
+
+    def test_lesson_filter_scopes_results(self, store: ProgressStore):
+        store.add_session_record(_dummy_record("2026-01-01T00:00:00", lesson_index=0))
+        store.add_session_transition_stats(
+            "2026-01-01T00:00:00", 0, "Lesson A",
+            [TransitionAggregate("io", 2, 5, 500.0, 90.0, 110.0)],
+        )
+        store.add_session_record(_dummy_record("2026-01-02T00:00:00", lesson_index=1))
+        store.add_session_transition_stats(
+            "2026-01-02T00:00:00", 1, "Lesson B",
+            [TransitionAggregate("on", 2, 5, 250.0, 40.0, 60.0)],
+        )
+        scoped = store.get_slowest_transitions(2, min_samples=1, lesson_index=0)
+        assert [s.sequence for s in scoped] == ["io"]
+
+    def test_invalid_ngram_size_raises(self, store: ProgressStore):
+        with pytest.raises(ValueError):
+            store.get_slowest_transitions(4)
+
+    def test_transition_rows_are_pruned_with_session_history_retention(
+        self, store: ProgressStore,
+    ):
+        for i in range(ProgressStore.MAX_HISTORY_SIZE + 1):
+            timestamp = f"2026-01-01T00:00:{i:02d}" if i < 60 else f"2026-01-01T00:01:{i - 60:02d}"
+            store.add_session_record(_dummy_record(timestamp, lesson_index=0))
+            aggregates = (
+                [TransitionAggregate("io", 2, 1, 100.0, 100.0, 100.0)] if i == 0 else []
+            )
+            store.add_session_transition_stats(timestamp, 0, "Test", aggregates)
+
+        # The very first session's transition row must be pruned once history
+        # grows past the retention window, even though it wrote a real
+        # aggregate and later sessions wrote none at all.
+        assert store.get_slowest_transitions(2, min_samples=1) == []
+        assert store.has_transition_data() is False
+
+
+def _seed_session(store: ProgressStore, timestamp: str, aggregates) -> None:
+    store.add_session_record(_dummy_record(timestamp, lesson_index=0))
+    store.add_session_transition_stats(timestamp, 0, "Test Lesson", aggregates)
+
+
+def _dummy_record(timestamp: str, lesson_index: int) -> SessionRecord:
+    return SessionRecord(
+        timestamp=timestamp,
+        lesson_index=lesson_index,
+        text_index=0,
+        lesson_name="Test Lesson",
+        wpm=40,
+        accuracy=95.0,
+        errors=0,
+        backspaces=0,
+        duration_seconds=10.0,
+        text_length=20,
+    )
+
+
 class TestSettingsDialog:
     def test_save_emits_only_changed_setting_names(self, qapp, store: ProgressStore):
         store.set_setting("theme", "Light")
@@ -282,6 +424,68 @@ class TestSettingsApplication:
         window.typing_input.setPlainText(first_character)
         assert not window._timed_mode_active
         assert not window._timed_timer.isActive()
+
+
+class TestTransitionsTab:
+    TAB_INDEX = 6  # Overview, Progress, Performance, History, Heatmap, Trends, Transitions
+
+    @staticmethod
+    def _build_tab(dialog: StatisticsDialog):
+        """Select the Transitions tab and force its lazy content to build."""
+        dialog._tabs.setCurrentIndex(TestTransitionsTab.TAB_INDEX)
+        dialog._finish_tab_build(TestTransitionsTab.TAB_INDEX)
+        return dialog._tabs.widget(TestTransitionsTab.TAB_INDEX)
+
+    def test_tab_remains_lazy_until_selected(self, qapp, store: ProgressStore):
+        dialog = StatisticsDialog(store, [])
+        assert self.TAB_INDEX not in dialog._built_tabs
+
+    def test_no_data_empty_state(self, qapp, store: ProgressStore):
+        dialog = StatisticsDialog(store, [])
+        tab = self._build_tab(dialog)
+        labels = tab.findChildren(QLabel)
+        assert any("No transition timing data yet" in label.text() for label in labels)
+
+    def test_collecting_state_when_below_threshold(self, qapp, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 2, 200.0, 90.0, 110.0),
+        ])
+        dialog = StatisticsDialog(store, [])
+        tab = self._build_tab(dialog)
+        labels = tab.findChildren(QLabel)
+        assert any("Collecting transition data" in label.text() for label in labels)
+        groups = tab.findChildren(QGroupBox)
+        assert any("Slowest Bigrams" in g.title() for g in groups)
+        assert any("Slowest Trigrams" in g.title() for g in groups)
+
+    def test_qualified_rows_render_expected_formatting(self, qapp, store: ProgressStore):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("i o", 2, 5, 555.0, 100.0, 120.0),
+        ])
+        dialog = StatisticsDialog(store, [])
+        tab = self._build_tab(dialog)
+        tables = tab.findChildren(QTableWidget)
+        assert tables
+        table = tables[0]
+        assert table.rowCount() == 1
+        assert table.item(0, 0).text() == "i␠o"
+        assert table.item(0, 1).text() == "111 ms"
+        assert table.item(0, 2).text() == "5"
+        assert table.item(0, 3).text() == "At baseline"
+
+    def test_slowest_and_baseline_groups_reachable_at_minimum_size(
+        self, qapp, store: ProgressStore,
+    ):
+        _seed_session(store, "2026-01-01T00:00:00", [
+            TransitionAggregate("io", 2, 5, 500.0, 90.0, 110.0),
+            TransitionAggregate("ion", 3, 5, 1000.0, 190.0, 210.0),
+        ])
+        dialog = StatisticsDialog(store, [])
+        dialog.resize(dialog.minimumSize())
+        tab = self._build_tab(dialog)
+        groups = {g.title(): g for g in tab.findChildren(QGroupBox)}
+        assert any("Slowest Bigrams" in title for title in groups)
+        assert any("Slowest Trigrams" in title for title in groups)
 
 
 class TestAnalytics:

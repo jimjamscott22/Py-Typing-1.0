@@ -4,6 +4,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from core.models import SessionRecord
+from core.transitions import (
+    MIN_TRANSITION_SAMPLES,
+    TRANSITION_RESULT_LIMIT,
+    TransitionAggregate,
+    TransitionSummary,
+)
 from core.weak_keys import WINDOW_SIZE
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
@@ -169,6 +175,22 @@ class ProgressStore:
                 challenge_id TEXT NOT NULL,
                 completed_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS session_transition_stats (
+                session_timestamp TEXT NOT NULL,
+                lesson_index INTEGER NOT NULL,
+                lesson_name TEXT NOT NULL,
+                ngram_size INTEGER NOT NULL CHECK (ngram_size IN (2, 3)),
+                sequence TEXT NOT NULL,
+                sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+                total_duration_ms REAL NOT NULL CHECK (total_duration_ms > 0),
+                min_duration_ms REAL NOT NULL CHECK (min_duration_ms > 0),
+                max_duration_ms REAL NOT NULL CHECK (max_duration_ms > 0),
+                PRIMARY KEY (session_timestamp, ngram_size, sequence)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_transition_stats_sequence
+                ON session_transition_stats (ngram_size, sequence);
+            CREATE INDEX IF NOT EXISTS idx_session_transition_stats_timestamp
+                ON session_transition_stats (session_timestamp);
             """
         )
         c.commit()
@@ -831,6 +853,111 @@ class ProgressStore:
                    ORDER BY session_timestamp ASC"""
             )
         ]
+
+    def add_session_transition_stats(
+        self,
+        timestamp: str,
+        lesson_index: int,
+        lesson_name: str,
+        aggregates: List[TransitionAggregate],
+    ) -> None:
+        """Persist one completed session's bigram/trigram aggregates.
+
+        Runs unconditionally, even for an empty `aggregates` list, so that a
+        session with no eligible transition samples still prunes any
+        transition rows belonging to sessions outside the retained history
+        window.
+        """
+        with self._conn:
+            for aggregate in aggregates:
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO session_transition_stats
+                       (session_timestamp, lesson_index, lesson_name, ngram_size,
+                        sequence, sample_count, total_duration_ms,
+                        min_duration_ms, max_duration_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(timestamp),
+                        int(lesson_index),
+                        str(lesson_name),
+                        int(aggregate.ngram_size),
+                        aggregate.sequence,
+                        int(aggregate.sample_count),
+                        float(aggregate.total_duration_ms),
+                        float(aggregate.min_duration_ms),
+                        float(aggregate.max_duration_ms),
+                    ),
+                )
+            self._conn.execute(
+                """DELETE FROM session_transition_stats
+                   WHERE session_timestamp NOT IN (SELECT timestamp FROM session_history)"""
+            )
+
+    def has_transition_data(self) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM session_transition_stats LIMIT 1"
+        ).fetchone()
+        return row is not None
+
+    def get_slowest_transitions(
+        self,
+        ngram_size: int,
+        *,
+        min_samples: int = MIN_TRANSITION_SAMPLES,
+        limit: int = TRANSITION_RESULT_LIMIT,
+        lesson_index: Optional[int] = None,
+    ) -> List[TransitionSummary]:
+        """Rank the slowest qualified sequences of a given n-gram size."""
+        if ngram_size not in (2, 3):
+            raise ValueError("ngram_size must be 2 or 3")
+        min_samples = max(1, int(min_samples))
+        limit = max(1, int(limit))
+
+        lesson_clause = ""
+        params: List[object] = [ngram_size]
+        if lesson_index is not None:
+            lesson_clause = " AND lesson_index = ?"
+            params.append(int(lesson_index))
+
+        baseline_row = self._conn.execute(
+            f"""SELECT SUM(total_duration_ms), SUM(sample_count)
+                FROM session_transition_stats
+                WHERE ngram_size = ?{lesson_clause}""",
+            params,
+        ).fetchone()
+        baseline_total, baseline_count = baseline_row if baseline_row else (None, None)
+        baseline = (
+            baseline_total / baseline_count
+            if baseline_total and baseline_count
+            else 0.0
+        )
+
+        rows = self._conn.execute(
+            f"""SELECT sequence, SUM(total_duration_ms) AS total, SUM(sample_count) AS count
+                FROM session_transition_stats
+                WHERE ngram_size = ?{lesson_clause}
+                GROUP BY sequence
+                HAVING SUM(sample_count) >= ?
+                ORDER BY (SUM(total_duration_ms) / SUM(sample_count)) DESC,
+                         SUM(sample_count) DESC, sequence ASC
+                LIMIT ?""",
+            [*params, min_samples, limit],
+        ).fetchall()
+
+        summaries = []
+        for sequence, total, count in rows:
+            average = total / count
+            delta = ((average / baseline) - 1) * 100 if baseline else 0.0
+            summaries.append(
+                TransitionSummary(
+                    sequence=sequence,
+                    ngram_size=ngram_size,
+                    average_ms=average,
+                    sample_count=count,
+                    baseline_delta_percent=delta,
+                )
+            )
+        return summaries
 
     def close(self) -> None:
         try:
