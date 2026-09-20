@@ -9,7 +9,7 @@ crosses into this module.
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Callable, List, Optional
 from uuid import uuid4
 
 from core.achievements import build_achievement_progress
@@ -19,6 +19,7 @@ from core.constants import DAILY_CHALLENGE_COIN_REWARD, SESSION_COIN_REWARD
 from core.models import SessionRecord, TypingSession
 from core.persistence import ProgressStore
 from core.scoring import calculate_accuracy, calculate_wpm
+from core.transitions import TextChange, TransitionTracker, aggregate_transition_samples
 
 
 @dataclass
@@ -53,11 +54,14 @@ class SessionController:
         best_wpm: BestWpmTracker,
         backspace_penalty: float,
         backspace_accuracy_weight: float,
+        transition_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.progress_store = progress_store
         self.best_wpm = best_wpm
         self.backspace_penalty = backspace_penalty
         self.backspace_accuracy_weight = backspace_accuracy_weight
+        self._transition_clock = transition_clock
+        self.transition_tracker = TransitionTracker()
         self.session = TypingSession()
         self.round_complete = False
         self._weak_round_id = str(uuid4())
@@ -66,6 +70,7 @@ class SessionController:
     def reset(self) -> None:
         """Clear session state for a fresh round."""
         self.session.reset()
+        self.transition_tracker.reset()
         self._weak_round_id = str(uuid4())
         self._weak_round_saved = False
         self.round_complete = False
@@ -87,16 +92,20 @@ class SessionController:
         )
         return EditOutcome(just_began=just_began, just_completed=just_completed)
 
-    def record_edit(self, insertions: list, target_text: str) -> None:
-        """Record per-character attempt/error stats for newly inserted text."""
-        for start, inserted in insertions:
-            for offset, char in enumerate(inserted):
-                index = start + offset
+    def record_edit(self, changes: List[TextChange], target_text: str) -> None:
+        """Record per-character attempt/error stats and transition timings."""
+        timestamp = self._transition_clock()
+        for change in changes:
+            for offset, char in enumerate(change.inserted):
+                index = change.position + offset
                 if index < len(target_text):
                     expected = target_text[index]
                     self.session.record_key_attempt(expected)
                     if char != expected:
                         self.session.record_key_error(expected)
+            self.session.transition_samples.extend(
+                self.transition_tracker.record_change(change, target_text, timestamp)
+            )
 
     def save_weak_key_round(
         self, mode: str, warmup_mode: bool, answer_imported: bool, lesson_index: int,
@@ -217,6 +226,15 @@ class SessionController:
                 ),
             )
             self.progress_store.add_session_record(record)
+
+            transition_aggregates = (
+                []
+                if answer_imported
+                else aggregate_transition_samples(self.session.transition_samples)
+            )
+            self.progress_store.add_session_transition_stats(
+                record.timestamp, record.lesson_index, lesson_name, transition_aggregates,
+            )
 
             if mode == "lesson" and not timed_out:
                 self.progress_store.mark_lesson_text_completed(

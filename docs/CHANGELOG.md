@@ -6,6 +6,41 @@
 
 ---
 
+## [Unreleased] — Bigram/Trigram Transition Timing
+
+**Status**: ✅ Shipped
+**Tests**: `test_transitions.py`, plus additions to `test_session_controller.py` and `test_enhancements.py`
+
+### What changed for users
+- New Statistics tab, **⌨️ Transitions**, ranks the ten slowest two- and
+  three-character sequences (e.g. `th`, `ion`) you type, separately from
+  accuracy — average time, sample count, and how each compares to your own
+  baseline for that sequence length.
+- Only genuine manual typing is measured: correct, adjacent characters typed
+  within 2 seconds of each other. Errors, deletions, cursor jumps,
+  multi-character insertions/IME batches, and long pauses reset the timing
+  chain rather than producing misleading samples.
+- Only completed sessions from normal typing count — warmup rounds and
+  rounds with a pasted/dropped answer are excluded, matching existing
+  progress-tracking behavior.
+- Privacy: only the expected two/three-character sequence and aggregate
+  timings are stored — never raw keystrokes, incorrect input, or full typed
+  text. Rankings need at least 5 observations before a sequence appears, so
+  the tab starts empty and fills in as you keep practicing.
+
+### What changed for developers
+
+| Module | Change |
+|--------|--------|
+| `core/transitions.py` | **New.** Qt-independent `TextChange`, `TransitionSample`, `TransitionAggregate`, `TransitionSummary`, `TransitionTracker`, `aggregate_transition_samples()`, `format_transition_sequence()`. |
+| `core/models.py` | `TypingSession` gains a round-scoped `transition_samples` list, cleared on `reset()`. |
+| `ui/typing_input.py` | `TypingInput` now captures both insertions and deletions as structured `TextChange` values (renamed `_insertions` → `_changes`). |
+| `core/session_controller.py` | `SessionController` composes a `TransitionTracker` behind an injectable monotonic clock; `record_edit()` feeds it alongside existing key attempt/error accounting, and `finalize()` aggregates and persists samples through the existing non-warmup completion path (skipped for answer-imported rounds). |
+| `core/persistence.py` | New `session_transition_stats` table (per-session aggregates, not raw events) plus `add_session_transition_stats()`, `get_slowest_transitions()`, `has_transition_data()`. Rows are pruned to the same 100-session retention window as `session_history`. |
+| `ui/dialogs.py` | New lazily built `⌨️ Transitions` tab in `StatisticsDialog` with separate bigram/trigram ranked tables and distinct empty/collecting states. |
+
+---
+
 ## [1.3] — Persistence Refactor & Scoring Extraction
 
 **Status**: ✅ Shipped

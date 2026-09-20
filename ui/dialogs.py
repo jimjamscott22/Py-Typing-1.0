@@ -5,6 +5,7 @@ from typing import List
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QProgressBar,
@@ -22,6 +24,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -48,6 +52,11 @@ from core.analytics import (
 from core.achievements import ACHIEVEMENTS, build_achievement_progress
 from core.challenges import evaluate_challenge_progress, get_daily_challenge
 from core.goals import evaluate_daily_goal, evaluate_weekly_goal
+from core.transitions import (
+    MIN_TRANSITION_SAMPLES,
+    TransitionSummary,
+    format_transition_sequence,
+)
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -86,6 +95,7 @@ class StatisticsDialog(QDialog):
             ("📜 History", self._create_history_tab),
             ("🔥 Error Heatmap", self._create_heatmap_tab),
             ("📉 Error Trends", self._create_trends_tab),
+            ("⌨️ Transitions", self._create_transitions_tab),
         ]
         self._build_ui()
 
@@ -642,6 +652,98 @@ class StatisticsDialog(QDialog):
         layout.addWidget(trends_group)
 
         layout.addStretch()
+        return widget
+
+    def _create_transition_table(self, summaries: List[TransitionSummary]) -> QTableWidget:
+        """Build a read-only, ranked table of transition timing summaries."""
+        table = QTableWidget(len(summaries), 4)
+        table.setHorizontalHeaderLabels(
+            ["Sequence", "Average time", "Samples", "Versus baseline"]
+        )
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+
+        for row, summary in enumerate(summaries):
+            delta = summary.baseline_delta_percent
+            if delta > 0.05:
+                baseline = f"{abs(delta):.1f}% slower"
+            elif delta < -0.05:
+                baseline = f"{abs(delta):.1f}% faster"
+            else:
+                baseline = "At baseline"
+
+            values = [
+                format_transition_sequence(summary.sequence),
+                f"{summary.average_ms:.0f} ms",
+                str(summary.sample_count),
+                baseline,
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                table.setItem(row, column, item)
+
+        return table
+
+    def _create_transitions_tab(self) -> QWidget:
+        """Create the tab showing the slowest qualified bigrams and trigrams."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        if not self.progress_store.has_transition_data():
+            empty_label = QLabel(
+                "No transition timing data yet. Complete a manually typed "
+                "session to begin collecting it."
+            )
+            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_label.setWordWrap(True)
+            layout.addWidget(empty_label)
+            return widget
+
+        explanation = QLabel(
+            "Lower times are faster. Results include only completed, manually "
+            f"typed rounds, and require at least {MIN_TRANSITION_SAMPLES} "
+            "observations of a sequence."
+        )
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet("color: #666; padding: 4px 0;")
+        layout.addWidget(explanation)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+
+        for title, ngram_size in (("Slowest Bigrams", 2), ("Slowest Trigrams", 3)):
+            group = QGroupBox(f"⌨️ {title}")
+            group_layout = QVBoxLayout(group)
+            summaries = self.progress_store.get_slowest_transitions(ngram_size)
+            if not summaries:
+                collecting_label = QLabel(
+                    "Collecting transition data — complete more sessions to "
+                    "unlock rankings."
+                )
+                collecting_label.setWordWrap(True)
+                collecting_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                group_layout.addWidget(collecting_label)
+            else:
+                group_layout.addWidget(self._create_transition_table(summaries))
+            container_layout.addWidget(group)
+
+        container_layout.addStretch()
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
         return widget
 
     def _export_csv(self) -> None:

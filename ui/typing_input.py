@@ -4,6 +4,8 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import QTextEdit
 
+from core.transitions import TextChange
+
 
 class TypingInput(QTextEdit):
     # Emitted after an input event, before the main window checks completion.
@@ -13,27 +15,26 @@ class TypingInput(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.editing = False
-        self._insertions = []
-        self.document().contentsChange.connect(self._capture_insertion)
+        self._changes = []
+        self.document().contentsChange.connect(self._capture_change)
 
-    def _capture_insertion(self, position, removed, added):
-        if not self.editing or not added:
+    def _capture_change(self, position, removed, added):
+        if not self.editing or (not removed and not added):
             return
         # Qt offsets count UTF-16 units; Python indexes count Unicode characters.
         raw = self.toPlainText().encode("utf-16-le")
         prefix = raw[:position * 2].decode("utf-16-le")
         inserted = raw[position * 2:(position + added) * 2].decode("utf-16-le")
-        if inserted:
-            self._insertions.append((len(prefix), inserted))
+        self._changes.append(TextChange(len(prefix), removed, inserted))
 
     def _edit(self, handler, event):
         self.editing = True
-        self._insertions = []
+        self._changes = []
         try:
             handler(event)
         finally:
             self.editing = False
-        self.user_edited.emit(self._insertions)
+        self.user_edited.emit(self._changes)
 
     def keyPressEvent(self, event):
         # Undo/redo restore text rather than constitute fresh typing attempts.

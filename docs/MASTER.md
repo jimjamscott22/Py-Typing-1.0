@@ -40,6 +40,7 @@
 | Per-session key error log | 1.2 | `session_key_errors` table |
 | Per-lesson heatmap filter | 1.2 | `ui/dialogs.py` |
 | Error Trends tab (time-series) | 1.2 | `core/charts.py`, `ui/dialogs.py` |
+| Bigram/trigram transition timing | Unreleased | `core/transitions.py`, `session_transition_stats` table, Statistics ⌨️ Transitions tab |
 
 ### 🔜 Tier 1 — Next (no schema change required)
 
@@ -58,9 +59,6 @@
 ### 💡 Feature Ideas (not yet scoped)
 
 From [[suggestions]]:
-- **Adaptive drills** — auto-generate drills weighted toward worst keys (`wordgen.py` + `key_errors` heatmap already exist, needs wiring)
-- **Bigram/trigram analysis** — track slow transitions (`th`, `ion`) not just per-key errors
-- **Goal/streak tracking** — daily WPM target, streak counter, calendar heatmap
 - **Lesson progression gating** — unlock next lesson at e.g. 40 WPM + 95% accuracy
 - **Import from file/URL** — book-style typing (Project Gutenberg, code samples)
 - **Per-finger WPM breakdown** — finger map already defined in `core/constants.py`
@@ -102,7 +100,6 @@ See [[VISUAL_OVERVIEW]] for diagrams, or [[SPEC_C++_Port]] for the authoritative
 
 ## Quality Gaps (open items)
 
-- Only one test file for ~3 400 LoC of Python. Pure modules (`wordgen`, `lessons`) are easy unit-test wins.
+- Six test files for ~4 800 LoC of Python (`test_scoring.py`, `test_best_wpm.py`, `test_enhancements.py`, `test_weak_keys.py`, `test_session_controller.py`, `test_transitions.py`).
 - `mypy` not yet in the dev workflow — add to CI.
 - No `black` / `isort` pre-commit hook.
-- **`main_window.py` aggressive split** still pending: extract `SessionController` (session lifecycle, `on_text_changed`) so `QMainWindow` becomes thin Qt glue. Risky — `on_text_changed` reads widgets directly; controller will need callbacks/signals.

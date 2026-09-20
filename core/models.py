@@ -2,6 +2,8 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 
+from core.transitions import TransitionSample
+
 @dataclass(frozen=True)
 class Lesson:
     title: str
@@ -19,6 +21,7 @@ class TypingSession:
     backspace_count: int = 0  # Track backspace usage
     key_errors: Dict[str, int] = field(default_factory=dict)  # Track errors per key
     key_attempts: Dict[str, int] = field(default_factory=dict)  # Track attempts per key
+    transition_samples: List[TransitionSample] = field(default_factory=list)
 
     def reset(self) -> None:
         self.typed_text = ""
@@ -28,6 +31,7 @@ class TypingSession:
         self.backspace_count = 0
         self.key_errors = {}
         self.key_attempts = {}
+        self.transition_samples = []
 
     def begin(self) -> None:
         self.is_active = True

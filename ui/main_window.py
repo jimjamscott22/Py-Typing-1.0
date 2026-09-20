@@ -991,14 +991,14 @@ class TypingPracticeApp(QMainWindow):
     def _mark_answer_imported(self) -> None:
         self._answer_imported = True
 
-    def _on_user_edit(self, insertions: list) -> None:
+    def _on_user_edit(self, changes: list) -> None:
         if self._round_complete:
             return
         if not self.typing_input.toPlainText().startswith(self.session.typed_text):
             # Repaint changed positions when editing inside the existing prefix.
             self._last_target_typed_len = 0
             self._last_highlighted_length = 0
-        self.controller.record_edit(insertions, self.current_target_text)
+        self.controller.record_edit(changes, self.current_target_text)
         self.on_text_changed()
 
     def on_text_changed(self) -> None:
