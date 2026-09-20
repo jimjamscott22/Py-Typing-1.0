@@ -424,19 +424,38 @@ class TypingPracticeApp(QMainWindow):
 
         self.typing_input = TypingInput()
         self.typing_input.setFont(QFont("Courier New", 16))
-        self.typing_input.setMaximumHeight(150)
         self.typing_input.setPlaceholderText("Start typing here...")
         self.typing_input.setStyleSheet(
-            "padding: 20px; background-color: #fff; border: 2px solid #2196F3; border-radius: 8px;"
+            "background-color: transparent; color: #d4d4d4; border: none; padding: 20px 20px 20px 6px;"
         )
         self.typing_input.textChanged.connect(self.on_text_changed)
         self.typing_input.user_edited.connect(self._on_user_edit)
         self.typing_input.answer_imported.connect(self._mark_answer_imported)
-        
+
         # Install event filter for backspace detection
         self.typing_input.installEventFilter(self)
-        
-        layout.addWidget(self.typing_input)
+
+        # Terminal-emulator dressing: a fake shell prompt sits to the left of
+        # the input, so typing here reads like a Kitty/Ghostty session.
+        terminal_frame = QWidget()
+        terminal_frame.setMaximumHeight(150)
+        terminal_frame.setStyleSheet(
+            "background-color: #0c0c0c; border: 2px solid #333333; border-radius: 8px;"
+        )
+        terminal_layout = QHBoxLayout(terminal_frame)
+        terminal_layout.setContentsMargins(16, 0, 0, 0)
+        terminal_layout.setSpacing(0)
+
+        self.terminal_prompt_label = QLabel("jimjamscozz ~ ❯")
+        self.terminal_prompt_label.setFont(QFont("Courier New", 16, QFont.Weight.Bold))
+        self.terminal_prompt_label.setStyleSheet(
+            "color: #4ec9b0; background-color: transparent; padding-top: 20px;"
+        )
+        self.terminal_prompt_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        terminal_layout.addWidget(self.terminal_prompt_label)
+        terminal_layout.addWidget(self.typing_input)
+
+        layout.addWidget(terminal_frame)
 
         formats = make_input_formats()
         self.input_default_format = formats.default
