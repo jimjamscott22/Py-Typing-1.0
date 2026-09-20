@@ -307,6 +307,251 @@ DRACULA_THEME = Theme(
     chart_secondary="#50fa7b",
 )
 
+# Cyber Hacker theme
+CYBER_HACKER_THEME = Theme(
+    name="Cyber Hacker",
+    bg_primary="#000000",
+    bg_secondary="#0d1f10",
+    text_primary="#00ff41",
+    text_secondary="#00a82b",
+    
+    description_bg="#0d1f10",
+    description_success_bg="#11451b",
+    description_complete_bg="#1e7330",
+    
+    target_bg="#0d1f10",
+    target_border="#008f11",
+    input_bg="#000000",
+    input_border="#00ff41",
+    
+    wpm_bg="#00a82b",
+    accuracy_bg="#00ff41",
+    progress_bg="#005e18",
+    error_bg="#cc0000",
+    backspace_bg="#800000",
+    best_bg="#008f11",
+    
+    progress_bar_bg="#0d1f10",
+    progress_bar_fill="#00ff41",
+    
+    button_bg="#0d1f10",
+    button_hover_bg="#11451b",
+    button_border="#008f11",
+    button_text="#00ff41",
+    
+    list_bg="#000000",
+    list_selected="#11451b",
+    
+    keyboard_bg="#000000",
+    keyboard_key_bg="#0d1f10",
+    keyboard_key_border="#008f11",
+    keyboard_text="#00ff41",
+    keyboard_highlight="#00ff41",
+    keyboard_error="#cc0000",
+    
+    chart_bg="#000000",
+    chart_grid="#0d1f10",
+    chart_text="#00ff41",
+    chart_primary="#00ff41",
+    chart_secondary="#00a82b",
+)
+
+# CRT Amber theme
+CRT_AMBER_THEME = Theme(
+    name="CRT Amber",
+    bg_primary="#0f0900",
+    bg_secondary="#211400",
+    text_primary="#ffb000",
+    text_secondary="#cc8c00",
+    
+    description_bg="#211400",
+    description_success_bg="#3a2300",
+    description_complete_bg="#573400",
+    
+    target_bg="#211400",
+    target_border="#8a5300",
+    input_bg="#0f0900",
+    input_border="#ffb000",
+    
+    wpm_bg="#cc8c00",
+    accuracy_bg="#ffb000",
+    progress_bg="#8a5300",
+    error_bg="#cc3300",
+    backspace_bg="#8c1a00",
+    best_bg="#ff9900",
+    
+    progress_bar_bg="#211400",
+    progress_bar_fill="#ffb000",
+    
+    button_bg="#211400",
+    button_hover_bg="#3a2300",
+    button_border="#8a5300",
+    button_text="#ffb000",
+    
+    list_bg="#0f0900",
+    list_selected="#3a2300",
+    
+    keyboard_bg="#0f0900",
+    keyboard_key_bg="#211400",
+    keyboard_key_border="#8a5300",
+    keyboard_text="#ffb000",
+    keyboard_highlight="#ffb000",
+    keyboard_error="#cc3300",
+    
+    chart_bg="#0f0900",
+    chart_grid="#211400",
+    chart_text="#ffb000",
+    chart_primary="#ffb000",
+    chart_secondary="#cc8c00",
+)
+
+# Monokai theme
+MONOKAI_THEME = Theme(
+    name="Monokai",
+    bg_primary="#272822",
+    bg_secondary="#3e3d32",
+    text_primary="#f8f8f2",
+    text_secondary="#75715e",
+    
+    description_bg="#3e3d32",
+    description_success_bg="#a6e22e",
+    description_complete_bg="#fd971f",
+    
+    target_bg="#3e3d32",
+    target_border="#75715e",
+    input_bg="#272822",
+    input_border="#66d9ef",
+    
+    wpm_bg="#a6e22e",
+    accuracy_bg="#66d9ef",
+    progress_bg="#fd971f",
+    error_bg="#f92672",
+    backspace_bg="#ae81ff",
+    best_bg="#e6db74",
+    
+    progress_bar_bg="#3e3d32",
+    progress_bar_fill="#a6e22e",
+    
+    button_bg="#3e3d32",
+    button_hover_bg="#49483e",
+    button_border="#75715e",
+    button_text="#f8f8f2",
+    
+    list_bg="#272822",
+    list_selected="#49483e",
+    
+    keyboard_bg="#272822",
+    keyboard_key_bg="#3e3d32",
+    keyboard_key_border="#75715e",
+    keyboard_text="#f8f8f2",
+    keyboard_highlight="#a6e22e",
+    keyboard_error="#f92672",
+    
+    chart_bg="#272822",
+    chart_grid="#3e3d32",
+    chart_text="#f8f8f2",
+    chart_primary="#66d9ef",
+    chart_secondary="#a6e22e",
+)
+
+# Gruvbox theme
+GRUVBOX_THEME = Theme(
+    name="Gruvbox",
+    bg_primary="#282828",
+    bg_secondary="#3c3836",
+    text_primary="#ebdbb2",
+    text_secondary="#a89984",
+    
+    description_bg="#3c3836",
+    description_success_bg="#98971a",
+    description_complete_bg="#d79921",
+    
+    target_bg="#3c3836",
+    target_border="#665c54",
+    input_bg="#282828",
+    input_border="#83a598",
+    
+    wpm_bg="#98971a",
+    accuracy_bg="#83a598",
+    progress_bg="#d79921",
+    error_bg="#cc241d",
+    backspace_bg="#b16286",
+    best_bg="#d3869b",
+    
+    progress_bar_bg="#3c3836",
+    progress_bar_fill="#98971a",
+    
+    button_bg="#3c3836",
+    button_hover_bg="#504945",
+    button_border="#665c54",
+    button_text="#ebdbb2",
+    
+    list_bg="#282828",
+    list_selected="#504945",
+    
+    keyboard_bg="#282828",
+    keyboard_key_bg="#3c3836",
+    keyboard_key_border="#665c54",
+    keyboard_text="#ebdbb2",
+    keyboard_highlight="#98971a",
+    keyboard_error="#cc241d",
+    
+    chart_bg="#282828",
+    chart_grid="#3c3836",
+    chart_text="#ebdbb2",
+    chart_primary="#83a598",
+    chart_secondary="#98971a",
+)
+
+# Synthwave theme
+SYNTHWAVE_THEME = Theme(
+    name="Synthwave",
+    bg_primary="#262335",
+    bg_secondary="#34294f",
+    text_primary="#ffffff",
+    text_secondary="#a48ebf",
+    
+    description_bg="#34294f",
+    description_success_bg="#72f1b8",
+    description_complete_bg="#ff7edb",
+    
+    target_bg="#34294f",
+    target_border="#49386d",
+    input_bg="#262335",
+    input_border="#36f9f6",
+    
+    wpm_bg="#72f1b8",
+    accuracy_bg="#36f9f6",
+    progress_bg="#fede5d",
+    error_bg="#ff8b39",
+    backspace_bg="#fe4450",
+    best_bg="#ff7edb",
+    
+    progress_bar_bg="#34294f",
+    progress_bar_fill="#36f9f6",
+    
+    button_bg="#34294f",
+    button_hover_bg="#49386d",
+    button_border="#a48ebf",
+    button_text="#ffffff",
+    
+    list_bg="#262335",
+    list_selected="#49386d",
+    
+    keyboard_bg="#262335",
+    keyboard_key_bg="#34294f",
+    keyboard_key_border="#49386d",
+    keyboard_text="#ffffff",
+    keyboard_highlight="#72f1b8",
+    keyboard_error="#fe4450",
+    
+    chart_bg="#262335",
+    chart_grid="#34294f",
+    chart_text="#ffffff",
+    chart_primary="#36f9f6",
+    chart_secondary="#ff7edb",
+)
+
 # Theme registry
 THEMES: Dict[str, Theme] = {
     "Light": LIGHT_THEME,
@@ -314,6 +559,11 @@ THEMES: Dict[str, Theme] = {
     "Solarized Dark": SOLARIZED_DARK_THEME,
     "Nord": NORD_THEME,
     "Dracula": DRACULA_THEME,
+    "Cyber Hacker": CYBER_HACKER_THEME,
+    "CRT Amber": CRT_AMBER_THEME,
+    "Monokai": MONOKAI_THEME,
+    "Gruvbox": GRUVBOX_THEME,
+    "Synthwave": SYNTHWAVE_THEME,
 }
 
 def get_theme(name: str) -> Theme:
