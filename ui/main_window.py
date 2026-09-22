@@ -66,6 +66,9 @@ from ui.styles import (
     build_main_stylesheet,
     build_target_text_style,
     build_description_styles,
+    build_stat_label_style,
+    build_accent_button_style,
+    build_progress_strip_style,
 )
 from ui.formats import make_input_formats
 
@@ -269,11 +272,8 @@ class TypingPracticeApp(QMainWindow):
         """Build the always-visible streak/coins/daily-challenge summary."""
         strip = QFrame()
         strip.setObjectName("progress_strip")
-        strip.setStyleSheet(
-            "QFrame#progress_strip { background-color: rgba(0, 0, 0, 0.04); "
-            "border-radius: 6px; margin: 0 10px 8px 10px; } "
-            "QFrame#progress_strip QLabel { background: transparent; }"
-        )
+        strip.setStyleSheet(build_progress_strip_style(self.current_theme))
+        self.progress_strip = strip
         strip_layout = QVBoxLayout(strip)
         strip_layout.setContentsMargins(10, 8, 10, 8)
         strip_layout.setSpacing(4)
@@ -346,15 +346,10 @@ class TypingPracticeApp(QMainWindow):
 
         self.lesson_description = QLabel()
         self.lesson_description.setWordWrap(True)
-        self.description_default_style = (
-            "padding: 10px; background-color: #e3f2fd; border-radius: 5px; font-size: 13px;"
-        )
-        self.description_success_style = (
-            "padding: 15px; background-color: #c8e6c9; border-radius: 5px; font-size: 14px; font-weight: bold;"
-        )
-        self.description_completion_style = (
-            "padding: 15px; background-color: #fff9c4; border-radius: 5px; font-size: 14px; font-weight: bold;"
-        )
+        description_styles = build_description_styles(self.current_theme)
+        self.description_default_style = description_styles["default"]
+        self.description_success_style = description_styles["success"]
+        self.description_completion_style = description_styles["complete"]
         self.lesson_description.setStyleSheet(self.description_default_style)
         layout.addWidget(self.lesson_description)
 
@@ -367,9 +362,7 @@ class TypingPracticeApp(QMainWindow):
         self.target_text.setWordWrap(True)
         self.target_text.setFont(QFont("Courier New", 16))
         self.target_text.setTextFormat(Qt.TextFormat.RichText)
-        self.target_text.setStyleSheet(
-            "padding: 20px; background-color: #f5f5f5; border: 2px solid #ccc; border-radius: 8px; line-height: 1.8;"
-        )
+        self.target_text.setStyleSheet(build_target_text_style(self.current_theme))
         layout.addWidget(self.target_text)
 
     def _add_free_practice_controls(self, layout: QVBoxLayout) -> None:
@@ -379,7 +372,8 @@ class TypingPracticeApp(QMainWindow):
 
         helper = QLabel("Customize your own drill or import a passage to practice freely.")
         helper.setWordWrap(True)
-        helper.setStyleSheet("font-size: 13px; color: #37474F;")
+        helper.setStyleSheet(f"font-size: 13px; color: {self.current_theme.text_secondary};")
+        self.free_practice_helper = helper
         controls_layout.addWidget(helper)
 
         self.custom_text_input = QTextEdit()
@@ -466,50 +460,37 @@ class TypingPracticeApp(QMainWindow):
     def _add_stats_section(self, layout: QVBoxLayout) -> None:
         stats_layout = QHBoxLayout()
 
+        theme = self.current_theme
+
         self.wpm_label = QLabel("WPM: 0")
-        self.wpm_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #4CAF50; color: white; border-radius: 5px;"
-        )
+        self.wpm_label.setStyleSheet(build_stat_label_style(theme.wpm_bg))
         self.wpm_label.setToolTip("Words Per Minute (adjusted for backspace penalties)")
         stats_layout.addWidget(self.wpm_label)
 
         self.accuracy_label = QLabel("Accuracy: 100%")
-        self.accuracy_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #2196F3; color: white; border-radius: 5px;"
-        )
+        self.accuracy_label.setStyleSheet(build_stat_label_style(theme.accuracy_bg))
         self.accuracy_label.setToolTip("Typing accuracy (adjusted for backspace usage)")
         stats_layout.addWidget(self.accuracy_label)
 
         self.progress_label = QLabel("Progress: 0%")
-        self.progress_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #FF9800; color: white; border-radius: 5px;"
-        )
+        self.progress_label.setStyleSheet(build_stat_label_style(theme.progress_bg))
         stats_layout.addWidget(self.progress_label)
 
         self.error_label = QLabel("Errors: 0")
-        self.error_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #F06292; color: white; border-radius: 5px;"
-        )
+        self.error_label.setStyleSheet(build_stat_label_style(theme.error_bg))
         stats_layout.addWidget(self.error_label)
 
-        # Backspace counter - styled distinctly in orange
         self.backspace_label = QLabel("⌫: 0")
-        self.backspace_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #FF5722; color: white; border-radius: 5px;"
-        )
+        self.backspace_label.setStyleSheet(build_stat_label_style(theme.backspace_bg))
         self.backspace_label.setToolTip("Backspace count - each press incurs a penalty")
         stats_layout.addWidget(self.backspace_label)
 
         self.best_wpm_label = QLabel("Best: --")
-        self.best_wpm_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #7E57C2; color: white; border-radius: 5px;"
-        )
+        self.best_wpm_label.setStyleSheet(build_stat_label_style(theme.best_bg))
         stats_layout.addWidget(self.best_wpm_label)
 
         self.timer_label = QLabel("")
-        self.timer_label.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 8px 12px; background-color: #455A64; color: white; border-radius: 5px;"
-        )
+        self.timer_label.setStyleSheet(build_stat_label_style(theme.button_bg))
         self.timer_label.setVisible(False)
         stats_layout.addWidget(self.timer_label)
 
@@ -517,10 +498,6 @@ class TypingPracticeApp(QMainWindow):
 
     def _add_progress_section(self, layout: QVBoxLayout) -> None:
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet(
-            "QProgressBar { border: 2px solid grey; border-radius: 5px; text-align: center; } "
-            "QProgressBar::chunk { background-color: #4CAF50; }"
-        )
         layout.addWidget(self.progress_bar)
 
     def _add_keyboard_section(self, layout: QVBoxLayout) -> None:
@@ -554,18 +531,14 @@ class TypingPracticeApp(QMainWindow):
         button_layout = QHBoxLayout()
 
         self.next_button = QPushButton("Next Text ➡️")
-        self.next_button.setStyleSheet(
-            "background-color: #4CAF50; color: white; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 5px;"
-        )
+        self.next_button.setStyleSheet(build_accent_button_style(self.current_theme.wpm_bg))
         self.next_button.clicked.connect(self.next_text)
         self.next_button.setToolTip("Press Space or Enter to continue after finishing a round")
         button_layout.addWidget(self.next_button)
 
         # Regenerate button for Random Words (initially hidden)
         self.regenerate_button = QPushButton("🎲 Generate New Words")
-        self.regenerate_button.setStyleSheet(
-            "background-color: #FF9800; color: white; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 5px;"
-        )
+        self.regenerate_button.setStyleSheet(build_accent_button_style(self.current_theme.progress_bg))
         self.regenerate_button.clicked.connect(self.regenerate_generated_text)
         self.regenerate_button.setVisible(False)
         button_layout.addWidget(self.regenerate_button)
@@ -638,6 +611,21 @@ class TypingPracticeApp(QMainWindow):
         self.description_completion_style = description_styles["complete"]
 
         self.target_text.setStyleSheet(build_target_text_style(theme))
+        self.progress_strip.setStyleSheet(build_progress_strip_style(theme))
+        self.free_practice_helper.setStyleSheet(
+            f"font-size: 13px; color: {theme.text_secondary};"
+        )
+
+        self.wpm_label.setStyleSheet(build_stat_label_style(theme.wpm_bg))
+        self.accuracy_label.setStyleSheet(build_stat_label_style(theme.accuracy_bg))
+        self.progress_label.setStyleSheet(build_stat_label_style(theme.progress_bg))
+        self.error_label.setStyleSheet(build_stat_label_style(theme.error_bg))
+        self.backspace_label.setStyleSheet(build_stat_label_style(theme.backspace_bg))
+        self.best_wpm_label.setStyleSheet(build_stat_label_style(theme.best_bg))
+        self.timer_label.setStyleSheet(build_stat_label_style(theme.button_bg))
+
+        self.next_button.setStyleSheet(build_accent_button_style(theme.wpm_bg))
+        self.regenerate_button.setStyleSheet(build_accent_button_style(theme.progress_bg))
 
         if self.mode == "lesson":
             lesson = self.lessons[self.current_lesson_index]
@@ -649,6 +637,12 @@ class TypingPracticeApp(QMainWindow):
 
         if self._active_generated_kind() == "weak" and not self._round_complete:
             self._show_weak_key_status()
+
+        # Force the per-character correct/error/gray spans to re-render with
+        # the new theme's colors instead of showing stale ones from before.
+        self._cached_target = ""
+        self._last_target_html = ""
+        self.update_display()
 
     def eventFilter(self, obj, event) -> bool:
         """Intercept key events to track backspace usage and enforce strict mode."""
@@ -1131,13 +1125,17 @@ class TypingPracticeApp(QMainWindow):
             update_end = max(prev_typed_len, typed_len)
         self._last_target_typed_len = typed_len
 
+        theme = self.current_theme
         style_templates = {
-            "correct": '<span style="color: green; background-color: #c8e6c9;">{char}</span>',
+            "correct": (
+                f'<span style="color: {theme.text_primary}; '
+                f'background-color: {theme.description_success_bg};">{{char}}</span>'
+            ),
             "error": (
-                '<span style="color: red; background-color: #ffcdd2; '
+                f'<span style="color: white; background-color: {theme.error_bg}; '
                 'text-decoration: underline;">{char}</span>'
             ),
-            "gray": '<span style="color: gray;">{char}</span>',
+            "gray": f'<span style="color: {theme.text_secondary};">{{char}}</span>',
         }
 
         errors = 0

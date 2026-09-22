@@ -42,6 +42,8 @@ def build_main_stylesheet(theme: Theme) -> str:
         QProgressBar {{
             background-color: {theme.progress_bar_bg};
             border: 2px solid {theme.target_border};
+            border-radius: 5px;
+            text-align: center;
         }}
         QProgressBar::chunk {{
             background-color: {theme.progress_bar_fill};
@@ -67,6 +69,30 @@ def build_target_text_style(theme: Theme) -> str:
         f"padding: 20px; background-color: {theme.target_bg}; "
         f"border: 2px solid {theme.target_border}; border-radius: 8px; "
         f"line-height: 1.8; color: {theme.text_primary};"
+    )
+
+
+def build_stat_label_style(bg_color: str) -> str:
+    """Style for the WPM/accuracy/progress/error/backspace/best/timer pills."""
+    return (
+        "font-size: 16px; font-weight: bold; padding: 8px 12px; "
+        f"background-color: {bg_color}; color: white; border-radius: 5px;"
+    )
+
+
+def build_accent_button_style(bg_color: str) -> str:
+    """Style for accent buttons (Next Text, Generate New Words) tied to a theme color."""
+    return (
+        f"background-color: {bg_color}; color: white; padding: 12px; "
+        "font-size: 14px; font-weight: bold; border-radius: 5px;"
+    )
+
+
+def build_progress_strip_style(theme: Theme) -> str:
+    return (
+        f"QFrame#progress_strip {{ background-color: {theme.bg_secondary}; "
+        "border-radius: 6px; margin: 0 10px 8px 10px; } "
+        "QFrame#progress_strip QLabel { background: transparent; }"
     )
 
 
