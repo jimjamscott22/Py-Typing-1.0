@@ -119,6 +119,56 @@ def build_lessons() -> List[Lesson]:
             ],
         ),
         Lesson(
+            title="Bash Commands - Navigation & Files",
+            description="Practice everyday commands for moving around and managing files",
+            texts=[
+                "ls -la pwd cd .. cd ~ mkdir build",
+                "cp file.txt backup.txt mv old.py new.py",
+                "rm -rf node_modules touch README.md",
+                "cat requirements.txt find . -name '*.py'",
+            ],
+        ),
+        Lesson(
+            title="Bash Commands - Git Workflow",
+            description="Type the git commands you use every day",
+            texts=[
+                "git status git add . git commit -m \"fix bug\"",
+                "git push -u origin main git pull origin main",
+                "git checkout -b feature/login git branch -d old-branch",
+                "git log --oneline -n 10 git diff HEAD~1",
+            ],
+        ),
+        Lesson(
+            title="Bash Commands - Search, Permissions & Networking",
+            description="Practice grep, chmod, curl, and other everyday shell utilities",
+            texts=[
+                "grep -rn TODO src/ chmod +x build_exe.bat",
+                "which python3 export PATH=$PATH:/usr/local/bin",
+                "curl -sS https://api.example.com | jq .",
+                "ssh user@host tar -xzvf archive.tar.gz",
+            ],
+        ),
+        Lesson(
+            title="Bash Commands - Project Tooling",
+            description="Practice the uv and pytest commands this project relies on",
+            texts=[
+                "uv sync uv run main.py uv run pytest -v",
+                "uv add --dev pyinstaller uv lock --upgrade",
+                "pip install -r requirements.txt python3 -m venv .venv",
+                "QT_QPA_PLATFORM=offscreen uv run python -c \"import ui\"",
+            ],
+        ),
+        Lesson(
+            title="Developer Keys - Shortcuts & Env Vars",
+            description="Practice keyboard-shortcut notation and environment-variable syntax",
+            texts=[
+                "ctrl+c ctrl+v ctrl+shift+p cmd+k cmd+s",
+                "export API_KEY=changeme source .env",
+                "KEY=value ${VAR:-default} $HOME/.bashrc",
+                "alt+tab cmd+shift+n ctrl+alt+delete",
+            ],
+        ),
+        Lesson(
             title="Developer Keys",
             description="Practice developer symbols, operators, and code-friendly key sequences",
             texts=["__DEVELOPER__"],

@@ -86,7 +86,7 @@ def test_persistence_retains_complete_rounds_and_preserves_legacy(tmp_path):
     store = ProgressStore(path)
     store.update_key_error_stats({"q": 12})
     store.update_key_attempt_stats({"q": 100})
-    store.data["current_lesson_index"] = 11
+    store.data["current_lesson_index"] = 16
     store.save()
     assert store.get_weak_key_rounds() == []
     for index in range(32):
@@ -99,7 +99,7 @@ def test_persistence_retains_complete_rounds_and_preserves_legacy(tmp_path):
     assert rounds[-1]["errors"] == {} and rounds[-1]["attempts"] == {"a": 20}
     assert reloaded.get_key_error_stats() == {"q": 12}
     assert reloaded.get_key_attempt_stats() == {"q": 100}
-    assert reloaded.data["current_lesson_index"] == 11
+    assert reloaded.data["current_lesson_index"] == 16
     store._conn.close()
     reloaded._conn.close()
 
@@ -241,9 +241,9 @@ def test_timed_finish_learns_the_typed_prefix(window):
 
 def test_drill_is_appended_and_collection_state_disables_typing(window):
     lessons = build_lessons()
-    assert lessons[11].title == "Developer Keys"
-    assert lessons[12].title == "Weak Key Practice"
-    window.load_lesson(12)
+    assert lessons[16].title == "Developer Keys"
+    assert lessons[17].title == "Weak Key Practice"
+    window.load_lesson(17)
     assert "0/5" in window.lesson_description.text()
     assert window.typing_input.isReadOnly()
     assert not window.next_button.isEnabled()
@@ -261,7 +261,7 @@ def test_drill_is_appended_and_collection_state_disables_typing(window):
 ])
 def test_empty_focus_explains_reason(window, errors, attempts, expected):
     seed(window, errors, attempts)
-    window.load_lesson(12)
+    window.load_lesson(17)
     assert expected in window.lesson_description.text()
     assert window.typing_input.isReadOnly()
 
@@ -269,7 +269,7 @@ def test_empty_focus_explains_reason(window, errors, attempts, expected):
 def test_ready_drill_reset_regeneration_and_completion_learn(window):
     seed(window, {"<": 1, "A": 1}, {"<": 4, "A": 4})
     window._adaptive_drills = False
-    window.load_lesson(12)
+    window.load_lesson(17)
     target = window.current_target_text
     assert len(target.split()) == 24 and not window.typing_input.isReadOnly()
     assert "&lt;" in window.lesson_description.text()
@@ -285,7 +285,7 @@ def test_ready_drill_reset_regeneration_and_completion_learn(window):
     assert window.progress_store.get_weak_key_rounds()[-1]["attempts"] == dict(Counter(window.current_target_text))
     assert window.progress_store.get_coins_total() >= 5
     QTest.keyClick(window.typing_input, Qt.Key.Key_Space)
-    assert window.current_lesson_index == 12 and not window._round_complete
+    assert window.current_lesson_index == 17 and not window._round_complete
     assert window._weak_profile.rounds == 6
     assert window.typing_input.toPlainText() == ""
 
@@ -293,7 +293,7 @@ def test_ready_drill_reset_regeneration_and_completion_learn(window):
 def test_timed_extension_keeps_focus_and_does_not_count_generated_text(window):
     seed(window)
     window._timed_mode_seconds = 60
-    window.load_lesson(12)
+    window.load_lesson(17)
     before = window.current_target_text
     profile = window._weak_profile
     window.progress_store.record_weak_key_round("new-focus", "now", 1, {"z": 20}, {"z": 20})
@@ -309,7 +309,7 @@ def test_timed_extension_keeps_focus_and_does_not_count_generated_text(window):
 def test_timed_target_displays_current_and_upcoming_groups(window):
     seed(window)
     window._timed_mode_seconds = 60
-    window.load_lesson(12)
+    window.load_lesson(17)
     target = window.current_target_text
     doc = QTextDocument()
     rendered, _ = window._build_target_highlight(target, "")
