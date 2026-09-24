@@ -57,7 +57,7 @@ from core.transitions import (
     TransitionSummary,
     format_transition_sequence,
 )
-from ui.styles import accessible_text_color
+from ui.styles import accessible_text_color, build_main_stylesheet
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -84,6 +84,8 @@ class StatisticsDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         self.lessons = lessons
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("📊 Typing Statistics")
         self.setMinimumSize(700, 550)
         self._built_tabs: set[int] = set()
@@ -815,6 +817,8 @@ class AchievementsDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         self.lessons = lessons
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🏅 Achievements & Badges")
         self.setMinimumSize(760, 560)
         self.resize(820, 650)
@@ -949,6 +953,8 @@ class ChallengesDialog(QDialog):
     def __init__(self, progress_store: ProgressStore, parent=None):
         super().__init__(parent)
         self.progress_store = progress_store
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🎯 Challenges & Goals")
         self.setMinimumWidth(480)
         self._build_ui()
@@ -1068,6 +1074,8 @@ class SettingsDialog(QDialog):
     def __init__(self, progress_store: ProgressStore, parent=None):
         super().__init__(parent)
         self.progress_store = progress_store
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("⚙️ Settings")
         self.setMinimumWidth(400)
         self._build_ui()

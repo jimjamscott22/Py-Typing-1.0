@@ -54,7 +54,7 @@ def accessible_text_color(preferred: str, background: str) -> str:
 
 def build_main_stylesheet(theme: Theme) -> str:
     return f"""
-        QMainWindow, QWidget#content, QWidget#sidebar {{
+        QMainWindow, QDialog, QWidget#content, QWidget#sidebar {{
             background-color: {theme.bg_primary};
             color: {theme.text_primary};
         }}

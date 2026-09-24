@@ -1,14 +1,26 @@
 """Regression tests for readable, theme-aware semantic colors."""
 
 import os
+from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QPalette
+from PyQt6.QtWidgets import QApplication
+
+from core.lessons import build_lessons
+from core.persistence import ProgressStore
 from core.themes import THEMES
+from ui.dialogs import AchievementsDialog, ChallengesDialog, SettingsDialog, StatisticsDialog
 from ui.formats import make_input_formats
 from ui import styles
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    return QApplication.instance() or QApplication([])
 
 
 def _luminance(color: str) -> float:
@@ -87,3 +99,26 @@ def test_input_feedback_formats_follow_theme_with_readable_text(theme):
         background = text_format.background().color().name()
         assert background == expected_background.lower()
         assert _contrast(foreground, background) >= 4.5
+
+
+@pytest.mark.parametrize("theme", THEMES.values(), ids=lambda theme: theme.name)
+def test_dialogs_paint_the_background_used_for_contrast(qapp, tmp_path: Path, theme):
+    store = ProgressStore(tmp_path / f"{theme.name}.json")
+    store.set_setting("theme", theme.name)
+    lessons = build_lessons()
+    dialogs = (
+        StatisticsDialog(store, lessons),
+        AchievementsDialog(store, lessons),
+        ChallengesDialog(store),
+        SettingsDialog(store),
+    )
+
+    try:
+        for dialog in dialogs:
+            dialog.ensurePolished()
+            actual = dialog.palette().color(QPalette.ColorRole.Window).name()
+            assert actual == theme.bg_primary.lower()
+    finally:
+        for dialog in dialogs:
+            dialog.close()
+        store.close()
