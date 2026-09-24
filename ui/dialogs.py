@@ -57,6 +57,7 @@ from core.transitions import (
     TransitionSummary,
     format_transition_sequence,
 )
+from ui.styles import accessible_text_color
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -210,7 +211,8 @@ class StatisticsDialog(QDialog):
             label_widget = QLabel(label)
             label_widget.setStyleSheet("font-weight: bold;")
             value_widget = QLabel(value)
-            value_widget.setStyleSheet(f"font-size: 16px; color: {theme.accuracy_bg};")
+            value_color = accessible_text_color(theme.accuracy_bg, theme.bg_primary)
+            value_widget.setStyleSheet(f"font-size: 16px; color: {value_color};")
             stats_layout.addWidget(label_widget, i, 0)
             stats_layout.addWidget(value_widget, i, 1)
 
@@ -316,7 +318,10 @@ class StatisticsDialog(QDialog):
             
             best_layout.addWidget(QLabel("Best WPM Ever:"), 0, 0)
             best_wpm_label = QLabel(f"{best_wpm} WPM")
-            best_wpm_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {theme.wpm_bg};")
+            wpm_color = accessible_text_color(theme.wpm_bg, theme.bg_primary)
+            best_wpm_label.setStyleSheet(
+                f"font-size: 18px; font-weight: bold; color: {wpm_color};"
+            )
             best_layout.addWidget(best_wpm_label, 0, 1)
             best_layout.addWidget(QLabel(f"({best_lesson} on {best_date})"), 0, 2)
 
@@ -326,7 +331,10 @@ class StatisticsDialog(QDialog):
             
             best_layout.addWidget(QLabel("Best Accuracy Ever:"), 1, 0)
             best_acc_label = QLabel(f"{best_acc:.1f}%")
-            best_acc_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {theme.accuracy_bg};")
+            accuracy_color = accessible_text_color(theme.accuracy_bg, theme.bg_primary)
+            best_acc_label.setStyleSheet(
+                f"font-size: 18px; font-weight: bold; color: {accuracy_color};"
+            )
             best_layout.addWidget(best_acc_label, 1, 1)
 
             # Most practiced lesson
@@ -339,7 +347,8 @@ class StatisticsDialog(QDialog):
                 most_practiced = max(lesson_counts.items(), key=lambda item: item[1])[0]
                 best_layout.addWidget(QLabel("Most Practiced Lesson:"), 2, 0)
                 mp_label = QLabel(f"{most_practiced} ({lesson_counts[most_practiced]} times)")
-                mp_label.setStyleSheet(f"font-size: 14px; color: {theme.progress_bg};")
+                progress_color = accessible_text_color(theme.progress_bg, theme.bg_primary)
+                mp_label.setStyleSheet(f"font-size: 14px; color: {progress_color};")
                 best_layout.addWidget(mp_label, 2, 1, 1, 2)
 
                 # Weakest lesson (lowest avg WPM with at least 3 sessions)
@@ -355,7 +364,8 @@ class StatisticsDialog(QDialog):
                     weakest = min(weak_lessons.items(), key=lambda item: item[1])[0]
                     best_layout.addWidget(QLabel("Needs Practice:"), 3, 0)
                     weak_label = QLabel(f"{weakest} (avg {weak_lessons[weakest]:.0f} WPM)")
-                    weak_label.setStyleSheet(f"font-size: 14px; color: {theme.error_bg};")
+                    error_color = accessible_text_color(theme.error_bg, theme.bg_primary)
+                    weak_label.setStyleSheet(f"font-size: 14px; color: {error_color};")
                     best_layout.addWidget(weak_label, 3, 1, 1, 2)
         else:
             no_data_label = QLabel("Complete sessions to see your personal bests!")
@@ -884,7 +894,11 @@ class AchievementsDialog(QDialog):
         title_row.addWidget(title, stretch=1)
 
         state = QLabel("UNLOCKED" if status.earned else "LOCKED")
-        state_color = theme.wpm_bg if status.earned else theme.text_secondary
+        state_color = (
+            accessible_text_color(theme.wpm_bg, theme.bg_secondary)
+            if status.earned
+            else theme.text_secondary
+        )
         state.setStyleSheet(f"font-weight: bold; color: {state_color};")
         title_row.addWidget(state)
         card_layout.addLayout(title_row)
@@ -904,7 +918,8 @@ class AchievementsDialog(QDialog):
                 except (TypeError, ValueError):
                     date_text = ""
             progress_label = QLabel(f"✓ Unlocked{date_text}")
-            progress_label.setStyleSheet(f"font-weight: bold; color: {theme.wpm_bg};")
+            earned_color = accessible_text_color(theme.wpm_bg, theme.bg_secondary)
+            progress_label.setStyleSheet(f"font-weight: bold; color: {earned_color};")
             card_layout.addWidget(progress_label)
         else:
             progress_label = QLabel(status.progress_text)
@@ -959,8 +974,9 @@ class ChallengesDialog(QDialog):
         challenge_layout.addWidget(desc_label)
 
         status_label = QLabel("✓ Completed today!" if progress.completed else progress.progress_text)
+        completed_color = accessible_text_color(theme.wpm_bg, theme.bg_primary)
         status_label.setStyleSheet(
-            f"font-weight: bold; color: {theme.wpm_bg};" if progress.completed
+            f"font-weight: bold; color: {completed_color};" if progress.completed
             else f"color: {theme.text_secondary};"
         )
         challenge_layout.addWidget(status_label)
@@ -1004,7 +1020,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if daily_met else ''}{daily_minutes:.0f} / {daily_goal:.0f} min today"
         )
         self.daily_goal_status.setStyleSheet(
-            f"color: {theme.wpm_bg};" if daily_met else f"color: {theme.text_secondary};"
+            f"color: {completed_color};" if daily_met else f"color: {theme.text_secondary};"
         )
         goals_layout.addRow("", self.daily_goal_status)
 
@@ -1021,7 +1037,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if weekly_met else ''}{weekly_count} / {weekly_goal} sessions this week"
         )
         self.weekly_goal_status.setStyleSheet(
-            f"color: {theme.wpm_bg};" if weekly_met else f"color: {theme.text_secondary};"
+            f"color: {completed_color};" if weekly_met else f"color: {theme.text_secondary};"
         )
         goals_layout.addRow("", self.weekly_goal_status)
 

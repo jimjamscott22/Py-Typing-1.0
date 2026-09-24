@@ -69,6 +69,8 @@ from ui.styles import (
     build_stat_label_style,
     build_accent_button_style,
     build_progress_strip_style,
+    accessible_text_color,
+    contrasting_text_color,
 )
 from ui.formats import make_input_formats
 
@@ -407,10 +409,7 @@ class TypingPracticeApp(QMainWindow):
         
         # Strict mode indicator
         self.strict_mode_indicator = QLabel("🔒 STRICT MODE")
-        self.strict_mode_indicator.setStyleSheet(
-            "color: #c62828; font-weight: bold; font-size: 12px; "
-            "background-color: #ffcdd2; padding: 4px 8px; border-radius: 4px;"
-        )
+        self._style_strict_mode_indicator()
         self.strict_mode_indicator.setVisible(False)
         input_header.addWidget(self.strict_mode_indicator)
         
@@ -451,7 +450,7 @@ class TypingPracticeApp(QMainWindow):
 
         layout.addWidget(terminal_frame)
 
-        formats = make_input_formats()
+        formats = make_input_formats(self.current_theme)
         self.input_default_format = formats.default
         self.correct_char_format = formats.correct
         self.error_char_format = formats.error
@@ -626,6 +625,13 @@ class TypingPracticeApp(QMainWindow):
 
         self.next_button.setStyleSheet(build_accent_button_style(theme.wpm_bg))
         self.regenerate_button.setStyleSheet(build_accent_button_style(theme.progress_bg))
+        self._style_strict_mode_indicator()
+
+        formats = make_input_formats(theme)
+        self.input_default_format = formats.default
+        self.correct_char_format = formats.correct
+        self.error_char_format = formats.error
+        self.extra_char_format = formats.extra
 
         if self.mode == "lesson":
             lesson = self.lessons[self.current_lesson_index]
@@ -642,6 +648,7 @@ class TypingPracticeApp(QMainWindow):
         # the new theme's colors instead of showing stale ones from before.
         self._cached_target = ""
         self._last_target_html = ""
+        self._last_highlighted_length = 0
         self.update_display()
 
     def eventFilter(self, obj, event) -> bool:
@@ -675,10 +682,22 @@ class TypingPracticeApp(QMainWindow):
     def _flash_strict_mode_warning(self) -> None:
         """Show a brief visual warning when backspace is attempted in strict mode."""
         original_style = self.typing_input.styleSheet()
+        warning_bg = self.current_theme.error_bg
         self.typing_input.setStyleSheet(
-            "padding: 20px; background-color: #ffcdd2; border: 2px solid #c62828; border-radius: 8px;"
+            f"padding: 20px; background-color: {warning_bg}; "
+            f"color: {contrasting_text_color(warning_bg)}; "
+            f"border: 2px solid {warning_bg}; border-radius: 8px;"
         )
         QTimer.singleShot(150, lambda: self.typing_input.setStyleSheet(original_style))
+
+    def _style_strict_mode_indicator(self) -> None:
+        """Apply readable theme colors to the strict-mode status badge."""
+        background = self.current_theme.error_bg
+        self.strict_mode_indicator.setStyleSheet(
+            f"color: {contrasting_text_color(background)}; font-weight: bold; "
+            f"font-size: 12px; background-color: {background}; "
+            "padding: 4px 8px; border-radius: 4px;"
+        )
 
     def _update_backspace_label(self) -> None:
         """Update the backspace counter display."""
@@ -1128,14 +1147,18 @@ class TypingPracticeApp(QMainWindow):
         theme = self.current_theme
         style_templates = {
             "correct": (
-                f'<span style="color: {theme.text_primary}; '
+                f'<span style="color: {contrasting_text_color(theme.description_success_bg)}; '
                 f'background-color: {theme.description_success_bg};">{{char}}</span>'
             ),
             "error": (
-                f'<span style="color: white; background-color: {theme.error_bg}; '
+                f'<span style="color: {contrasting_text_color(theme.error_bg)}; '
+                f'background-color: {theme.error_bg}; '
                 'text-decoration: underline;">{char}</span>'
             ),
-            "gray": f'<span style="color: {theme.text_secondary};">{{char}}</span>',
+            "gray": (
+                f'<span style="color: '
+                f'{accessible_text_color(theme.text_secondary, theme.target_bg)};">{{char}}</span>'
+            ),
         }
 
         errors = 0
