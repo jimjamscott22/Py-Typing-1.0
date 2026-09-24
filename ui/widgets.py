@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from core.constants import KEY_FINGER_MAP, FINGER_COLORS
 from core.themes import Theme, LIGHT_THEME
+from ui.styles import contrasting_text_color
 
 class KeyboardWidget(QWidget):
     """Virtual keyboard display with next-key highlighting and finger color coding."""
@@ -185,10 +186,14 @@ class KeyboardWidget(QWidget):
                 
                 if is_next:
                     fill_color = highlight_color
-                    current_text_color = QColor("#ffffff")
+                    current_text_color = QColor(
+                        contrasting_text_color(self.theme.keyboard_highlight)
+                    )
                 elif is_error:
                     fill_color = error_color
-                    current_text_color = QColor("#ffffff")
+                    current_text_color = QColor(
+                        contrasting_text_color(self.theme.keyboard_error)
+                    )
                 else:
                     # Use finger color coding
                     finger = KEY_FINGER_MAP.get(key_char.lower(), None)

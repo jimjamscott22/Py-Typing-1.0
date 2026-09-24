@@ -57,6 +57,7 @@ from core.transitions import (
     TransitionSummary,
     format_transition_sequence,
 )
+from ui.styles import accessible_text_color, build_main_stylesheet
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -83,6 +84,8 @@ class StatisticsDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         self.lessons = lessons
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("📊 Typing Statistics")
         self.setMinimumSize(700, 550)
         self._built_tabs: set[int] = set()
@@ -175,6 +178,9 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
         history = self.progress_store.get_session_history()
 
         # Calculate statistics
@@ -207,7 +213,8 @@ class StatisticsDialog(QDialog):
             label_widget = QLabel(label)
             label_widget.setStyleSheet("font-weight: bold;")
             value_widget = QLabel(value)
-            value_widget.setStyleSheet("font-size: 16px; color: #2196F3;")
+            value_color = accessible_text_color(theme.accuracy_bg, theme.bg_primary)
+            value_widget.setStyleSheet(f"font-size: 16px; color: {value_color};")
             stats_layout.addWidget(label_widget, i, 0)
             stats_layout.addWidget(value_widget, i, 1)
 
@@ -235,18 +242,17 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
         history = self.progress_store.get_session_history()
 
         if not history:
             empty_label = QLabel("No session data yet. Complete some typing exercises to see progress!")
-            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
-
-        # Get current theme
-        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
-        theme = get_theme(theme_name)
 
         # Combined progress chart
         progress_group = QGroupBox("📈 Performance Progress Over Time")
@@ -294,6 +300,9 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
         history = self.progress_store.get_session_history()
         raw_best_wpm_data = self.progress_store.data.get("best_wpm", {})
         best_wpm_map = raw_best_wpm_data if isinstance(raw_best_wpm_data, dict) else {}
@@ -311,7 +320,10 @@ class StatisticsDialog(QDialog):
             
             best_layout.addWidget(QLabel("Best WPM Ever:"), 0, 0)
             best_wpm_label = QLabel(f"{best_wpm} WPM")
-            best_wpm_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #4CAF50;")
+            wpm_color = accessible_text_color(theme.wpm_bg, theme.bg_primary)
+            best_wpm_label.setStyleSheet(
+                f"font-size: 18px; font-weight: bold; color: {wpm_color};"
+            )
             best_layout.addWidget(best_wpm_label, 0, 1)
             best_layout.addWidget(QLabel(f"({best_lesson} on {best_date})"), 0, 2)
 
@@ -321,7 +333,10 @@ class StatisticsDialog(QDialog):
             
             best_layout.addWidget(QLabel("Best Accuracy Ever:"), 1, 0)
             best_acc_label = QLabel(f"{best_acc:.1f}%")
-            best_acc_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2196F3;")
+            accuracy_color = accessible_text_color(theme.accuracy_bg, theme.bg_primary)
+            best_acc_label.setStyleSheet(
+                f"font-size: 18px; font-weight: bold; color: {accuracy_color};"
+            )
             best_layout.addWidget(best_acc_label, 1, 1)
 
             # Most practiced lesson
@@ -334,7 +349,8 @@ class StatisticsDialog(QDialog):
                 most_practiced = max(lesson_counts.items(), key=lambda item: item[1])[0]
                 best_layout.addWidget(QLabel("Most Practiced Lesson:"), 2, 0)
                 mp_label = QLabel(f"{most_practiced} ({lesson_counts[most_practiced]} times)")
-                mp_label.setStyleSheet("font-size: 14px; color: #FF9800;")
+                progress_color = accessible_text_color(theme.progress_bg, theme.bg_primary)
+                mp_label.setStyleSheet(f"font-size: 14px; color: {progress_color};")
                 best_layout.addWidget(mp_label, 2, 1, 1, 2)
 
                 # Weakest lesson (lowest avg WPM with at least 3 sessions)
@@ -350,7 +366,8 @@ class StatisticsDialog(QDialog):
                     weakest = min(weak_lessons.items(), key=lambda item: item[1])[0]
                     best_layout.addWidget(QLabel("Needs Practice:"), 3, 0)
                     weak_label = QLabel(f"{weakest} (avg {weak_lessons[weakest]:.0f} WPM)")
-                    weak_label.setStyleSheet("font-size: 14px; color: #F06292;")
+                    error_color = accessible_text_color(theme.error_bg, theme.bg_primary)
+                    weak_label.setStyleSheet(f"font-size: 14px; color: {error_color};")
                     best_layout.addWidget(weak_label, 3, 1, 1, 2)
         else:
             no_data_label = QLabel("Complete sessions to see your personal bests!")
@@ -449,11 +466,13 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+
         global_stats = self.progress_store.get_key_error_stats()
 
         if not global_stats:
             empty_label = QLabel("No error data yet. Complete some typing exercises to see your problem keys!")
-            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
@@ -513,16 +532,15 @@ class StatisticsDialog(QDialog):
                 child.deleteLater()
 
         layout = self._heatmap_content_layout
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
 
         if not key_error_stats:
             empty_label = QLabel("No error data for this lesson yet.")
-            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return
-
-        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
-        theme = get_theme(theme_name)
 
         use_error_rate = (
             hasattr(self, "_heatmap_rate_check")
@@ -623,17 +641,17 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
         timeseries = self.progress_store.get_error_timeseries()
 
         if not timeseries:
             empty_label = QLabel("No error trend data yet. Complete some typing exercises to track your progress!")
-            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
-
-        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
-        theme = get_theme(theme_name)
 
         trends_group = QGroupBox("📉 Errors Over Time")
         trends_layout = QVBoxLayout(trends_group)
@@ -698,12 +716,15 @@ class StatisticsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
+        theme = get_theme(theme_name)
+
         if not self.progress_store.has_transition_data():
             empty_label = QLabel(
                 "No transition timing data yet. Complete a manually typed "
                 "session to begin collecting it."
             )
-            empty_label.setStyleSheet("font-size: 14px; color: #666; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_label.setWordWrap(True)
             layout.addWidget(empty_label)
@@ -715,7 +736,7 @@ class StatisticsDialog(QDialog):
             "observations of a sequence."
         )
         explanation.setWordWrap(True)
-        explanation.setStyleSheet("color: #666; padding: 4px 0;")
+        explanation.setStyleSheet(f"color: {theme.text_secondary}; padding: 4px 0;")
         layout.addWidget(explanation)
 
         scroll = QScrollArea()
@@ -796,6 +817,8 @@ class AchievementsDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         self.lessons = lessons
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🏅 Achievements & Badges")
         self.setMinimumSize(760, 560)
         self.resize(820, 650)
@@ -854,10 +877,10 @@ class AchievementsDialog(QDialog):
         card.setFrameShape(QFrame.Shape.StyledPanel)
         card.setMinimumHeight(170)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        border_color = "#4CAF50" if status.earned else theme.button_border
+        border_color = theme.wpm_bg if status.earned else theme.button_border
         card.setStyleSheet(
             f"QFrame {{ background: {theme.bg_secondary}; border: 2px solid {border_color}; "
-            "border-radius: 10px; }} "
+            "border-radius: 10px; } "
             "QLabel { border: none; background: transparent; }"
         )
         card_layout = QVBoxLayout(card)
@@ -875,7 +898,11 @@ class AchievementsDialog(QDialog):
         title_row.addWidget(title, stretch=1)
 
         state = QLabel("UNLOCKED" if status.earned else "LOCKED")
-        state_color = "#4CAF50" if status.earned else theme.text_secondary
+        state_color = (
+            accessible_text_color(theme.wpm_bg, theme.bg_secondary)
+            if status.earned
+            else theme.text_secondary
+        )
         state.setStyleSheet(f"font-weight: bold; color: {state_color};")
         title_row.addWidget(state)
         card_layout.addLayout(title_row)
@@ -895,7 +922,8 @@ class AchievementsDialog(QDialog):
                 except (TypeError, ValueError):
                     date_text = ""
             progress_label = QLabel(f"✓ Unlocked{date_text}")
-            progress_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            earned_color = accessible_text_color(theme.wpm_bg, theme.bg_secondary)
+            progress_label.setStyleSheet(f"font-weight: bold; color: {earned_color};")
             card_layout.addWidget(progress_label)
         else:
             progress_label = QLabel(status.progress_text)
@@ -909,9 +937,9 @@ class AchievementsDialog(QDialog):
             progress_bar.setMaximumHeight(10)
             progress_bar.setStyleSheet(
                 f"QProgressBar {{ background: {theme.progress_bar_bg}; border: none; "
-                "border-radius: 5px; }} "
+                "border-radius: 5px; } "
                 f"QProgressBar::chunk {{ background: {theme.progress_bar_fill}; "
-                "border-radius: 5px; }}"
+                "border-radius: 5px; }"
             )
             card_layout.addWidget(progress_bar)
 
@@ -925,12 +953,15 @@ class ChallengesDialog(QDialog):
     def __init__(self, progress_store: ProgressStore, parent=None):
         super().__init__(parent)
         self.progress_store = progress_store
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🎯 Challenges & Goals")
         self.setMinimumWidth(480)
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
         history = self.progress_store.get_session_history()
         today = date.today()
 
@@ -949,8 +980,10 @@ class ChallengesDialog(QDialog):
         challenge_layout.addWidget(desc_label)
 
         status_label = QLabel("✓ Completed today!" if progress.completed else progress.progress_text)
+        completed_color = accessible_text_color(theme.wpm_bg, theme.bg_primary)
         status_label.setStyleSheet(
-            "font-weight: bold; color: #4CAF50;" if progress.completed else "color: #666;"
+            f"font-weight: bold; color: {completed_color};" if progress.completed
+            else f"color: {theme.text_secondary};"
         )
         challenge_layout.addWidget(status_label)
 
@@ -993,7 +1026,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if daily_met else ''}{daily_minutes:.0f} / {daily_goal:.0f} min today"
         )
         self.daily_goal_status.setStyleSheet(
-            "color: #4CAF50;" if daily_met else "color: #666;"
+            f"color: {completed_color};" if daily_met else f"color: {theme.text_secondary};"
         )
         goals_layout.addRow("", self.daily_goal_status)
 
@@ -1010,7 +1043,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if weekly_met else ''}{weekly_count} / {weekly_goal} sessions this week"
         )
         self.weekly_goal_status.setStyleSheet(
-            "color: #4CAF50;" if weekly_met else "color: #666;"
+            f"color: {completed_color};" if weekly_met else f"color: {theme.text_secondary};"
         )
         goals_layout.addRow("", self.weekly_goal_status)
 
@@ -1041,6 +1074,8 @@ class SettingsDialog(QDialog):
     def __init__(self, progress_store: ProgressStore, parent=None):
         super().__init__(parent)
         self.progress_store = progress_store
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("⚙️ Settings")
         self.setMinimumWidth(400)
         self._build_ui()

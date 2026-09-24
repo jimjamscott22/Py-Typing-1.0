@@ -10,6 +10,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import QApplication, QGroupBox, QLabel, QTableWidget
 
 from core.analytics import compute_streaks, get_practice_recommendations
@@ -18,11 +19,13 @@ from core.challenges import CHALLENGE_TEMPLATES, evaluate_challenge_progress, ge
 from core.goals import evaluate_daily_goal, evaluate_weekly_goal
 from core.models import SessionRecord
 from core.persistence import ProgressStore
+from core.themes import get_theme
 from core.transitions import TransitionAggregate
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 from core.warmup import WARMUP_PHRASES, get_warmup_text
 from ui.dialogs import SettingsDialog, StatisticsDialog
 from ui.main_window import TypingPracticeApp
+from ui.styles import accessible_text_color
 
 
 @pytest.fixture
@@ -314,6 +317,32 @@ class TestSettingsDialog:
 
 
 class TestSettingsApplication:
+    def test_theme_change_rebuilds_existing_typing_feedback(self, window):
+        target = window.current_target_text
+        window.typing_input.setPlainText(target[:1])
+        QApplication.processEvents()
+
+        window.current_theme = get_theme("Solarized Dark")
+        window._apply_theme()
+
+        assert (
+            window.correct_char_format.background().color().name()
+            == window.current_theme.description_success_bg
+        )
+        cursor = QTextCursor(window.typing_input.document())
+        cursor.setPosition(0)
+        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor)
+        assert (
+            cursor.charFormat().background().color().name()
+            == window.current_theme.description_success_bg
+        )
+        assert window.current_theme.description_success_bg in window.target_text.text()
+        expected_untyped = accessible_text_color(
+            window.current_theme.text_secondary,
+            window.current_theme.target_bg,
+        )
+        assert f"color: {expected_untyped}" in window.target_text.text()
+
     def test_visual_change_preserves_active_generated_drill(self, window):
         random_index = next(
             index
