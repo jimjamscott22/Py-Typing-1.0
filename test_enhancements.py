@@ -24,7 +24,7 @@ from core.transitions import TransitionAggregate
 from core.wordgen import generate_adaptive_text, generate_text, timed_word_count
 from core.warmup import WARMUP_PHRASES, get_warmup_text
 from ui.dialogs import SettingsDialog, StatisticsDialog
-from ui.main_window import TypingPracticeApp
+from ui.main_window import SECTION_ROLE, TypingPracticeApp
 from ui.styles import accessible_text_color
 
 
@@ -706,6 +706,65 @@ class TestWarmup:
         for _ in range(20):
             second = get_warmup_text(exclude=first)
             assert second != first
+
+
+class TestLessonSidebar:
+    def _header(self, window, category):
+        for row in range(window.lesson_list.count()):
+            item = window.lesson_list.item(row)
+            if window._is_section_header(item) and item.data(SECTION_ROLE) == category:
+                return item
+        raise AssertionError(f"no header for {category}")
+
+    def _lesson_items(self, window, category):
+        items = [window.lesson_list.item(r) for r in range(window.lesson_list.count())]
+        return [
+            item for item in items
+            if item.data(SECTION_ROLE) == category and not window._is_section_header(item)
+        ]
+
+    def test_every_lesson_row_maps_back_to_its_lesson(self, window):
+        for index in range(len(window.lessons)):
+            window.lesson_list.setCurrentRow(window._row_for_lesson(index))
+            assert window.mode == "lesson"
+            assert window.current_lesson_index == index
+
+    def test_selecting_header_row_does_nothing(self, window):
+        window.load_lesson(0)
+        header_row = window.lesson_list.row(self._header(window, "Bash Commands"))
+        window.lesson_list.setCurrentRow(header_row)
+        assert window.current_lesson_index == 0
+
+    def test_toggle_section_hides_and_shows_its_lessons(self, window):
+        window._toggle_section("Bash Commands")
+        assert all(item.isHidden() for item in self._lesson_items(window, "Bash Commands"))
+        assert not any(item.isHidden() for item in self._lesson_items(window, "Keyboard Rows"))
+        assert self._header(window, "Bash Commands").text().startswith("▸")
+
+        window._toggle_section("Bash Commands")
+        assert not any(item.isHidden() for item in self._lesson_items(window, "Bash Commands"))
+        assert self._header(window, "Bash Commands").text().startswith("▾")
+
+    def test_collapsed_sections_persist_across_restarts(self, window, qapp):
+        window._toggle_section("Words & Sentences")
+        window.close()
+
+        reopened = TypingPracticeApp()
+        try:
+            assert all(
+                item.isHidden() for item in self._lesson_items(reopened, "Words & Sentences")
+            )
+        finally:
+            reopened.close()
+
+    def test_selecting_lesson_in_collapsed_section_expands_it(self, window):
+        bash_index = next(
+            i for i, lesson in enumerate(window.lessons) if lesson.category == "Bash Commands"
+        )
+        window._toggle_section("Bash Commands")
+        window.lesson_list.setCurrentRow(window._row_for_lesson(bash_index))
+        assert window.current_lesson_index == bash_index
+        assert not any(item.isHidden() for item in self._lesson_items(window, "Bash Commands"))
 
 
 class TestWarmupToggle:

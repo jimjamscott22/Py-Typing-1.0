@@ -6,6 +6,7 @@ def build_lessons() -> List[Lesson]:
     return [
         Lesson(
             title="Home Row - Basic",
+            category="Keyboard Rows",
             description="Learn the home row keys: ASDF JKL;",
             texts=[
                 "aaa sss ddd fff jjj kkk lll ;;;",
@@ -16,6 +17,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Home Row - Words",
+            category="Keyboard Rows",
             description="Practice common words using home row",
             texts=[
                 "fall fall sass sass flask flask",
@@ -26,6 +28,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Top Row - Basic",
+            category="Keyboard Rows",
             description="Add top row: QWER UIOP",
             texts=[
                 "qqq www eee rrr uuu iii ooo ppp",
@@ -36,6 +39,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Top Row - Words",
+            category="Keyboard Rows",
             description="Practice with top and home row combined",
             texts=[
                 "quiet quail ripe pepper",
@@ -46,6 +50,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Bottom Row - Basic",
+            category="Keyboard Rows",
             description="Add bottom row: ZXCV BNM",
             texts=[
                 "zzz xxx ccc vvv bbb nnn mmm",
@@ -56,6 +61,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="All Rows Combined",
+            category="Keyboard Rows",
             description="Practice all letter keys together",
             texts=[
                 "the quick brown fox jumps",
@@ -66,6 +72,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Common Words",
+            category="Words & Sentences",
             description="Practice frequently used English words",
             texts=[
                 "the and for are but not you all can her was one",
@@ -76,11 +83,13 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Random Words",
+            category="Words & Sentences",
             description="Practice with a generated stream of common words (randomized each time)",
             texts=["__RANDOM__"],
         ),
         Lesson(
             title="Sentences - Easy",
+            category="Words & Sentences",
             description="Type complete sentences for fluency",
             texts=[
                 "The cat sat on the mat.",
@@ -91,6 +100,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Sentences - Medium",
+            category="Words & Sentences",
             description="More complex sentences with punctuation",
             texts=[
                 "Practice makes perfect, so keep typing every day.",
@@ -101,6 +111,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Speed Challenge",
+            category="Words & Sentences",
             description="Test your speed with longer passages",
             texts=[
                 (
@@ -120,6 +131,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Bash Commands - Navigation & Files",
+            category="Bash Commands",
             description="Practice everyday commands for moving around and managing files",
             texts=[
                 "ls -la pwd cd .. cd ~ mkdir build",
@@ -130,6 +142,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Bash Commands - Git Workflow",
+            category="Bash Commands",
             description="Type the git commands you use every day",
             texts=[
                 "git status git add . git commit -m \"fix bug\"",
@@ -140,6 +153,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Bash Commands - Search, Permissions & Networking",
+            category="Bash Commands",
             description="Practice grep, chmod, curl, and other everyday shell utilities",
             texts=[
                 "grep -rn TODO src/ chmod +x build_exe.bat",
@@ -150,6 +164,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Bash Commands - Project Tooling",
+            category="Bash Commands",
             description="Practice the uv and pytest commands this project relies on",
             texts=[
                 "uv sync uv run main.py uv run pytest -v",
@@ -160,6 +175,7 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Developer Keys - Shortcuts & Env Vars",
+            category="Developer Keys",
             description="Practice keyboard-shortcut notation and environment-variable syntax",
             texts=[
                 "ctrl+c ctrl+v ctrl+shift+p cmd+k cmd+s",
@@ -170,11 +186,13 @@ def build_lessons() -> List[Lesson]:
         ),
         Lesson(
             title="Developer Keys",
+            category="Developer Keys",
             description="Practice developer symbols, operators, and code-friendly key sequences",
             texts=["__DEVELOPER__"],
         ),
         Lesson(
             title="Weak Key Practice",
+            category="Adaptive",
             description="Practice key sequences and words based on your recent mistakes",
             texts=["__WEAK_KEYS__"],
         ),

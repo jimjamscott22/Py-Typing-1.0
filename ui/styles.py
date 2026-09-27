@@ -74,6 +74,35 @@ def build_main_stylesheet(theme: Theme) -> str:
         QListWidget::item:selected {{
             background-color: {theme.list_selected};
         }}
+        QListWidget#lesson_list {{
+            background-color: {theme.bg_primary};
+            padding: 2px 8px;
+            outline: none;
+        }}
+        QListWidget#lesson_list::item {{
+            background-color: {theme.list_bg};
+            color: {theme.text_primary};
+            border: 1px solid {theme.target_border};
+            border-radius: 6px;
+            padding: 4px 10px;
+            margin: 1px 0px;
+        }}
+        QListWidget#lesson_list::item:hover {{
+            background-color: {theme.bg_secondary};
+            border-color: {theme.list_selected};
+        }}
+        QListWidget#lesson_list::item:selected {{
+            background-color: {theme.list_selected};
+            color: {contrasting_text_color(theme.list_selected)};
+            border: 1px solid {theme.list_selected};
+            border-left: 4px solid {theme.progress_bar_fill};
+        }}
+        QListWidget#lesson_list::item:disabled {{
+            background-color: transparent;
+            color: {theme.text_secondary};
+            border: none;
+            padding: 10px 2px 1px 2px;
+        }}
         QPushButton {{
             background-color: {theme.button_bg};
             color: {theme.button_text};

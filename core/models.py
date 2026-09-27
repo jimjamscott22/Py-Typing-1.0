@@ -9,6 +9,7 @@ class Lesson:
     title: str
     description: str
     texts: List[str]
+    category: str = ""  # Sidebar section heading
 
 
 @dataclass

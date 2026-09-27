@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QProgressBar,
     QPushButton,
@@ -83,13 +84,19 @@ _DEVELOPER_DRILL_SETTINGS = frozenset(
 )
 
 
+# UserRole value marking the sidebar's Free Practice entry (lessons use 0..n-1).
+FREE_PRACTICE_ROW_INDEX = -1
+# Item role holding the sidebar section a header or lesson item belongs to.
+SECTION_ROLE = Qt.ItemDataRole.UserRole + 1
+COLLAPSED_SECTIONS_SETTING = "collapsed_lesson_sections"
+
+
 class TypingPracticeApp(QMainWindow):
     """Main application window for touch typing practice."""
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.lesson_offset = 1
         self.mode = "lesson"
         self.warmup_mode = False
         self._pre_warmup_state: dict | None = None
@@ -226,9 +233,12 @@ class TypingPracticeApp(QMainWindow):
         self._build_progress_strip(layout)
 
         self.lesson_list = QListWidget()
-        self.lesson_list.addItem("Free Practice")
-        self.lesson_list.addItems([lesson.title for lesson in self.lessons])
+        self.lesson_list.setObjectName("lesson_list")
+        self.lesson_list.setWordWrap(True)
+        self.lesson_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._populate_lesson_list()
         self.lesson_list.currentRowChanged.connect(self._handle_row_change)
+        self.lesson_list.viewport().installEventFilter(self)
         layout.addWidget(self.lesson_list)
 
         # Sidebar buttons
@@ -652,7 +662,21 @@ class TypingPracticeApp(QMainWindow):
         self.update_display()
 
     def eventFilter(self, obj, event) -> bool:
-        """Intercept key events to track backspace usage and enforce strict mode."""
+        """Intercept key events to track backspace usage and enforce strict mode.
+
+        Also catches clicks on sidebar section headers, which are disabled items
+        and so never emit the list's own click signals.
+        """
+        if (
+            obj is self.lesson_list.viewport()
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.lesson_list.isEnabled()
+        ):
+            item = self.lesson_list.itemAt(event.position().toPoint())
+            if self._is_section_header(item):
+                self._toggle_section(item.data(SECTION_ROLE))
+                return True
         if obj == self.typing_input and event.type() == QEvent.Type.KeyPress:
             key_event = event
             # Once a round is complete, Space/Enter jumps to the next challenge.
@@ -721,20 +745,121 @@ class TypingPracticeApp(QMainWindow):
             self.current_text_index = 0
 
         self.lesson_list.blockSignals(True)
-        target_row = self.lesson_offset + self.current_lesson_index
+        target_row = self._row_for_lesson(self.current_lesson_index)
         self.lesson_list.setCurrentRow(target_row)
         self.lesson_list.blockSignals(False)
+        self._reveal_row(target_row)
 
         self.load_lesson(self.current_lesson_index, reset_text_index=False)
+
+    def _populate_lesson_list(self) -> None:
+        """Fill the sidebar with Free Practice plus lessons grouped under section headers.
+
+        Each selectable item stores its lesson index in UserRole (-1 for Free
+        Practice); section headers are non-selectable and store None. Headers
+        and lessons both carry their section name in SECTION_ROLE so a header
+        click can collapse the lessons beneath it.
+        """
+        saved = self.progress_store.get_setting(COLLAPSED_SECTIONS_SETTING, [])
+        self._collapsed_sections = set(saved) if isinstance(saved, list) else set()
+
+        self._add_lesson_item("Free Practice", FREE_PRACTICE_ROW_INDEX, "Type any text you like")
+        current_category = None
+        for index, lesson in enumerate(self.lessons):
+            if lesson.category and lesson.category != current_category:
+                current_category = lesson.category
+                header = QListWidgetItem()
+                header.setFlags(Qt.ItemFlag.NoItemFlags)
+                header.setData(SECTION_ROLE, current_category)
+                header.setToolTip("Click to collapse or expand this section")
+                font = header.font()
+                font.setBold(True)
+                font.setPointSizeF(max(font.pointSizeF() - 1.5, 7.0))
+                header.setFont(font)
+                self.lesson_list.addItem(header)
+            label = lesson.title
+            prefix = f"{lesson.category} - "
+            if lesson.category and label.startswith(prefix):
+                label = label[len(prefix):]
+            self._add_lesson_item(label, index, lesson.description, lesson.category)
+
+        for category in list(self._collapsed_sections):
+            self._set_section_collapsed(category, True, persist=False)
+        for row in range(self.lesson_list.count()):
+            self._refresh_section_header(self.lesson_list.item(row))
+
+    def _add_lesson_item(
+        self, label: str, lesson_index: int, tooltip: str, category: str = ""
+    ) -> None:
+        item = QListWidgetItem(label)
+        item.setData(Qt.ItemDataRole.UserRole, lesson_index)
+        item.setData(SECTION_ROLE, category)
+        item.setToolTip(tooltip)
+        self.lesson_list.addItem(item)
+
+    @staticmethod
+    def _is_section_header(item: QListWidgetItem | None) -> bool:
+        return (
+            item is not None
+            and item.data(Qt.ItemDataRole.UserRole) is None
+            and bool(item.data(SECTION_ROLE))
+        )
+
+    def _refresh_section_header(self, item: QListWidgetItem) -> None:
+        if not self._is_section_header(item):
+            return
+        category = item.data(SECTION_ROLE)
+        arrow = "▸" if category in self._collapsed_sections else "▾"
+        item.setText(f"{arrow}  {category.upper()}")
+
+    def _set_section_collapsed(self, category: str, collapsed: bool, persist: bool = True) -> None:
+        """Hide or show every lesson under *category* and update its header arrow."""
+        if collapsed:
+            self._collapsed_sections.add(category)
+        else:
+            self._collapsed_sections.discard(category)
+        for row in range(self.lesson_list.count()):
+            item = self.lesson_list.item(row)
+            if item.data(SECTION_ROLE) != category:
+                continue
+            if self._is_section_header(item):
+                self._refresh_section_header(item)
+            else:
+                item.setHidden(collapsed)
+        if persist:
+            self.progress_store.set_setting(
+                COLLAPSED_SECTIONS_SETTING, sorted(self._collapsed_sections)
+            )
+
+    def _toggle_section(self, category: str) -> None:
+        self._set_section_collapsed(category, category not in self._collapsed_sections)
+
+    def _reveal_row(self, row: int) -> None:
+        """Expand the section containing *row* so the selected lesson is visible."""
+        item = self.lesson_list.item(row)
+        if item is not None and item.isHidden() and item.data(SECTION_ROLE):
+            self._set_section_collapsed(item.data(SECTION_ROLE), False)
+        if item is not None:
+            self.lesson_list.scrollToItem(item)
+
+    def _row_for_lesson(self, lesson_index: int) -> int:
+        """Return the sidebar row holding *lesson_index*, or -1 if absent."""
+        for row in range(self.lesson_list.count()):
+            if self.lesson_list.item(row).data(Qt.ItemDataRole.UserRole) == lesson_index:
+                return row
+        return -1
 
     def _handle_row_change(self, row: int) -> None:
         if row == -1:
             return
-        if row == 0:
+        lesson_index = self.lesson_list.item(row).data(Qt.ItemDataRole.UserRole)
+        if lesson_index is None:
+            return
+        self._reveal_row(row)
+        if lesson_index == FREE_PRACTICE_ROW_INDEX:
             self._enter_free_practice()
             return
 
-        lesson_index = row - self.lesson_offset
         lesson_index = self._clamp_index(lesson_index, len(self.lessons))
         self.load_lesson(lesson_index)
 
@@ -1516,8 +1641,7 @@ class TypingPracticeApp(QMainWindow):
             return
 
         if self.current_lesson_index < len(self.lessons) - 1:
-            next_row = self.lesson_offset + self.current_lesson_index + 1
-            self.lesson_list.setCurrentRow(next_row)
+            self.lesson_list.setCurrentRow(self._row_for_lesson(self.current_lesson_index + 1))
             return
 
         self._update_description("🏆 Congratulations! You've completed all lessons!", mode="complete")
