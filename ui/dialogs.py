@@ -57,7 +57,7 @@ from core.transitions import (
     TransitionSummary,
     format_transition_sequence,
 )
-from ui.styles import accessible_text_color, build_main_stylesheet
+from ui.styles import accessible_text_color, apply_card_shadow, build_main_stylesheet
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -883,6 +883,7 @@ class AchievementsDialog(QDialog):
             "border-radius: 10px; } "
             "QLabel { border: none; background: transparent; }"
         )
+        apply_card_shadow(card, blur=12, y_offset=2, alpha=60)
         card_layout = QVBoxLayout(card)
 
         title_row = QHBoxLayout()

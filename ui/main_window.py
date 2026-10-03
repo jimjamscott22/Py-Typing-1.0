@@ -6,11 +6,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QColor, QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
@@ -78,6 +77,7 @@ from ui.styles import (
     build_progress_strip_style,
     accessible_text_color,
     contrasting_text_color,
+    apply_card_shadow,
 )
 from ui.formats import make_input_formats
 
@@ -192,16 +192,6 @@ class TypingPracticeApp(QMainWindow):
         self.setWindowTitle("Touch Typing Practice")
         self.setGeometry(100, 100, 1100, 850)
 
-    @staticmethod
-    def _apply_card_shadow(widget: QWidget, blur: int = 18, y_offset: int = 3) -> None:
-        """Give a card-like panel a soft drop shadow for visual depth."""
-        shadow = QGraphicsDropShadowEffect(widget)
-        shadow.setBlurRadius(blur)
-        shadow.setXOffset(0)
-        shadow.setYOffset(y_offset)
-        shadow.setColor(QColor(0, 0, 0, 70))
-        widget.setGraphicsEffect(shadow)
-
     def _build_ui(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -303,7 +293,7 @@ class TypingPracticeApp(QMainWindow):
         strip = QFrame()
         strip.setObjectName("progress_strip")
         strip.setStyleSheet(build_progress_strip_style(self.current_theme))
-        self._apply_card_shadow(strip, blur=14, y_offset=2)
+        apply_card_shadow(strip, blur=14, y_offset=2)
         self.progress_strip = strip
         strip_layout = QVBoxLayout(strip)
         strip_layout.setContentsMargins(10, 8, 10, 8)
@@ -396,7 +386,7 @@ class TypingPracticeApp(QMainWindow):
         self.target_text.setFont(QFont("Courier New", 16))
         self.target_text.setTextFormat(Qt.TextFormat.RichText)
         self.target_text.setStyleSheet(build_target_text_style(self.current_theme))
-        self._apply_card_shadow(self.target_text)
+        apply_card_shadow(self.target_text)
         layout.addWidget(self.target_text)
 
     def _add_free_practice_controls(self, layout: QVBoxLayout) -> None:

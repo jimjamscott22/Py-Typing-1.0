@@ -7,6 +7,7 @@ without touching window construction.
 from typing import Dict
 
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QWidget
 
 from core.themes import Theme
 
@@ -57,6 +58,16 @@ def accessible_text_color(preferred: str, background: str) -> str:
 def darken(color: str, amount: int = 115) -> str:
     """Return *color* darkened by *amount* percent (>100 darkens, per QColor.darker)."""
     return QColor(color).darker(amount).name()
+
+
+def apply_card_shadow(widget: QWidget, blur: int = 18, y_offset: int = 3, alpha: int = 70) -> None:
+    """Give a card-like panel a soft drop shadow for visual depth."""
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(blur)
+    shadow.setXOffset(0)
+    shadow.setYOffset(y_offset)
+    shadow.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(shadow)
 
 
 def build_main_stylesheet(theme: Theme) -> str:
