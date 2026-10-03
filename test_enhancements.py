@@ -10,8 +10,9 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QTextCursor
-from PyQt6.QtWidgets import QApplication, QGroupBox, QLabel, QTableWidget
+from PyQt6.QtWidgets import QApplication, QGroupBox, QLabel, QListWidget, QMainWindow, QTableWidget
 
 from core.analytics import compute_streaks, get_practice_recommendations
 from core.achievements import build_achievement_progress
@@ -709,6 +710,19 @@ class TestWarmup:
 
 
 class TestLessonSidebar:
+    @pytest.mark.parametrize("event_type", [QEvent.Type.Polish, QEvent.Type.KeyPress])
+    def test_viewport_events_before_typing_input_exists(self, qapp, event_type):
+        # Reproduce the construction state after the sidebar is built but
+        # before the typing panel exists, without installing a native callback.
+        window = TypingPracticeApp.__new__(TypingPracticeApp)
+        QMainWindow.__init__(window)
+        window.lesson_list = QListWidget(window)
+        try:
+            assert not hasattr(window, "typing_input")
+            assert window.eventFilter(window.lesson_list.viewport(), QEvent(event_type)) is False
+        finally:
+            window.deleteLater()
+
     def _header(self, window, category):
         for row in range(window.lesson_list.count()):
             item = window.lesson_list.item(row)

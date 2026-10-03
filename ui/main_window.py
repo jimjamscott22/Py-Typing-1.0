@@ -667,16 +667,18 @@ class TypingPracticeApp(QMainWindow):
         Also catches clicks on sidebar section headers, which are disabled items
         and so never emit the list's own click signals.
         """
-        if (
-            obj is self.lesson_list.viewport()
-            and event.type() == QEvent.Type.MouseButtonRelease
-            and event.button() == Qt.MouseButton.LeftButton
-            and self.lesson_list.isEnabled()
-        ):
-            item = self.lesson_list.itemAt(event.position().toPoint())
-            if self._is_section_header(item):
-                self._toggle_section(item.data(SECTION_ROLE))
-                return True
+        if obj is self.lesson_list.viewport():
+            if (
+                event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+                and self.lesson_list.isEnabled()
+            ):
+                item = self.lesson_list.itemAt(event.position().toPoint())
+                if self._is_section_header(item):
+                    self._toggle_section(item.data(SECTION_ROLE))
+                    return True
+            # The sidebar receives events before the typing panel is built.
+            return super().eventFilter(obj, event)
         if obj == self.typing_input and event.type() == QEvent.Type.KeyPress:
             key_event = event
             # Once a round is complete, Space/Enter jumps to the next challenge.
