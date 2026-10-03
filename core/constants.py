@@ -1,3 +1,10 @@
+# Spacing scale (px) for consistent layout gaps, instead of ad hoc magic numbers.
+SPACING_XS = 4
+SPACING_SM = 8
+SPACING_MD = 12
+SPACING_LG = 16
+SPACING_XL = 24
+
 # Default settings values
 DEFAULT_BACKSPACE_PENALTY = 3  # WPM penalty per backspace
 DEFAULT_BACKSPACE_ACCURACY_WEIGHT = 0.5  # Each backspace counts as 0.5 errors

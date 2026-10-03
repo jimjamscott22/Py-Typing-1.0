@@ -5,11 +5,13 @@ from datetime import date
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QColor, QFont, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -56,6 +58,9 @@ from core.constants import (
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
     WARMUP_DESCRIPTION,
+    SPACING_XS,
+    SPACING_SM,
+    SPACING_LG,
 )
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
@@ -69,6 +74,7 @@ from ui.styles import (
     build_description_styles,
     build_stat_label_style,
     build_accent_button_style,
+    build_plain_button_style,
     build_progress_strip_style,
     accessible_text_color,
     contrasting_text_color,
@@ -186,6 +192,16 @@ class TypingPracticeApp(QMainWindow):
         self.setWindowTitle("Touch Typing Practice")
         self.setGeometry(100, 100, 1100, 850)
 
+    @staticmethod
+    def _apply_card_shadow(widget: QWidget, blur: int = 18, y_offset: int = 3) -> None:
+        """Give a card-like panel a soft drop shadow for visual depth."""
+        shadow = QGraphicsDropShadowEffect(widget)
+        shadow.setBlurRadius(blur)
+        shadow.setXOffset(0)
+        shadow.setYOffset(y_offset)
+        shadow.setColor(QColor(0, 0, 0, 70))
+        widget.setGraphicsEffect(shadow)
+
     def _build_ui(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -225,6 +241,7 @@ class TypingPracticeApp(QMainWindow):
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACING_SM)
 
         title = QLabel("⌨️ Typing Lessons")
         title.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
@@ -245,6 +262,7 @@ class TypingPracticeApp(QMainWindow):
         button_container = QWidget()
         button_layout = QVBoxLayout(button_container)
         button_layout.setContentsMargins(10, 5, 10, 10)
+        button_layout.setSpacing(SPACING_SM)
 
         self.stats_button = QPushButton("📊 View Statistics")
         self.stats_button.clicked.connect(self._show_statistics)
@@ -285,12 +303,14 @@ class TypingPracticeApp(QMainWindow):
         strip = QFrame()
         strip.setObjectName("progress_strip")
         strip.setStyleSheet(build_progress_strip_style(self.current_theme))
+        self._apply_card_shadow(strip, blur=14, y_offset=2)
         self.progress_strip = strip
         strip_layout = QVBoxLayout(strip)
         strip_layout.setContentsMargins(10, 8, 10, 8)
-        strip_layout.setSpacing(4)
+        strip_layout.setSpacing(SPACING_XS)
 
         top_row = QHBoxLayout()
+        top_row.setSpacing(SPACING_SM)
         self.streak_value_label = QLabel("🔥 0 days")
         self.streak_value_label.setStyleSheet("font-size: 12px; font-weight: bold;")
         top_row.addWidget(self.streak_value_label)
@@ -309,6 +329,7 @@ class TypingPracticeApp(QMainWindow):
         self.challenge_progress_bar.setRange(0, 100)
         self.challenge_progress_bar.setMaximumHeight(14)
         self.challenge_progress_bar.setTextVisible(True)
+        self._challenge_bar_anim = self._make_progress_animation(self.challenge_progress_bar)
         strip_layout.addWidget(self.challenge_progress_bar)
 
         layout.addWidget(strip)
@@ -328,7 +349,7 @@ class TypingPracticeApp(QMainWindow):
         )
         self.coins_value_label.setText(f"🪙 {coins}")
         self.challenge_value_label.setText(f"{challenge.icon} {challenge.title}")
-        self.challenge_progress_bar.setValue(progress.percent)
+        self._animate_progress_bar(self.challenge_progress_bar, self._challenge_bar_anim, progress.percent)
         self.challenge_progress_bar.setFormat(
             "✓ Complete" if progress.completed else progress.progress_text
         )
@@ -337,7 +358,7 @@ class TypingPracticeApp(QMainWindow):
         content = QWidget()
         content.setObjectName("content")
         layout = QVBoxLayout(content)
-        layout.setSpacing(15)
+        layout.setSpacing(SPACING_LG)
 
         self._add_lesson_header(layout)
         self._add_target_section(layout)
@@ -375,6 +396,7 @@ class TypingPracticeApp(QMainWindow):
         self.target_text.setFont(QFont("Courier New", 16))
         self.target_text.setTextFormat(Qt.TextFormat.RichText)
         self.target_text.setStyleSheet(build_target_text_style(self.current_theme))
+        self._apply_card_shadow(self.target_text)
         layout.addWidget(self.target_text)
 
     def _add_free_practice_controls(self, layout: QVBoxLayout) -> None:
@@ -394,6 +416,7 @@ class TypingPracticeApp(QMainWindow):
         controls_layout.addWidget(self.custom_text_input)
 
         buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(SPACING_SM)
 
         self.apply_custom_text_button = QPushButton("Use Custom Text")
         self.apply_custom_text_button.clicked.connect(self.apply_custom_text)
@@ -410,7 +433,8 @@ class TypingPracticeApp(QMainWindow):
     def _add_input_section(self, layout: QVBoxLayout) -> None:
         # Header row with input label and strict mode indicator
         input_header = QHBoxLayout()
-        
+        input_header.setSpacing(SPACING_SM)
+
         input_label = QLabel("✍️ Your typing:")
         input_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         input_header.addWidget(input_label)
@@ -468,6 +492,7 @@ class TypingPracticeApp(QMainWindow):
 
     def _add_stats_section(self, layout: QVBoxLayout) -> None:
         stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(SPACING_SM)
 
         theme = self.current_theme
 
@@ -507,7 +532,23 @@ class TypingPracticeApp(QMainWindow):
 
     def _add_progress_section(self, layout: QVBoxLayout) -> None:
         self.progress_bar = QProgressBar()
+        self._progress_bar_anim = self._make_progress_animation(self.progress_bar)
         layout.addWidget(self.progress_bar)
+
+    @staticmethod
+    def _make_progress_animation(bar: QProgressBar) -> QPropertyAnimation:
+        anim = QPropertyAnimation(bar, b"value", bar)
+        anim.setDuration(150)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        return anim
+
+    @staticmethod
+    def _animate_progress_bar(bar: QProgressBar, anim: QPropertyAnimation, value: int) -> None:
+        """Ease toward *value* instead of snapping, so progress reads as motion."""
+        anim.stop()
+        anim.setStartValue(bar.value())
+        anim.setEndValue(value)
+        anim.start()
 
     def _add_keyboard_section(self, layout: QVBoxLayout) -> None:
         """Add the virtual keyboard section."""
@@ -517,6 +558,7 @@ class TypingPracticeApp(QMainWindow):
 
         # Toggle button
         toggle_layout = QHBoxLayout()
+        toggle_layout.setSpacing(SPACING_SM)
         self.keyboard_toggle = QPushButton("⌨️ Hide Keyboard")
         self.keyboard_toggle.setCheckable(True)
         self.keyboard_toggle.setChecked(True)
@@ -538,6 +580,7 @@ class TypingPracticeApp(QMainWindow):
 
     def _add_controls(self, layout: QVBoxLayout) -> None:
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(SPACING_SM)
 
         self.next_button = QPushButton("Next Text ➡️")
         self.next_button.setStyleSheet(build_accent_button_style(self.current_theme.wpm_bg))
@@ -553,7 +596,7 @@ class TypingPracticeApp(QMainWindow):
         button_layout.addWidget(self.regenerate_button)
 
         self.reset_button = QPushButton("↺ Reset")
-        self.reset_button.setStyleSheet("padding: 12px; font-size: 14px; border-radius: 5px;")
+        self.reset_button.setStyleSheet(build_plain_button_style(self.current_theme))
         self.reset_button.clicked.connect(self.reset_exercise)
         button_layout.addWidget(self.reset_button)
 
@@ -635,6 +678,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.next_button.setStyleSheet(build_accent_button_style(theme.wpm_bg))
         self.regenerate_button.setStyleSheet(build_accent_button_style(theme.progress_bg))
+        self.reset_button.setStyleSheet(build_plain_button_style(theme))
         self._style_strict_mode_indicator()
 
         formats = make_input_formats(theme)
@@ -1418,17 +1462,17 @@ class TypingPracticeApp(QMainWindow):
             elapsed_fraction = 1.0 - (self._timed_seconds_remaining / self._timed_mode_seconds)
             progress = min(100, max(0, int(elapsed_fraction * 100)))
             self.progress_label.setText(f"Timed: {progress}%")
-            self.progress_bar.setValue(progress)
+            self._animate_progress_bar(self.progress_bar, self._progress_bar_anim, progress)
             return
 
         if not target:
             self.progress_label.setText("Progress: 0%")
-            self.progress_bar.setValue(0)
+            self._animate_progress_bar(self.progress_bar, self._progress_bar_anim, 0)
             return
 
         progress = min(int((len(typed) / len(target)) * 100), 100)
         self.progress_label.setText(f"Progress: {progress}%")
-        self.progress_bar.setValue(progress)
+        self._animate_progress_bar(self.progress_bar, self._progress_bar_anim, progress)
 
     def _update_error_label(self, total_errors: int) -> None:
         self.error_label.setText(f"Errors: {total_errors}")
@@ -1673,6 +1717,20 @@ class TypingPracticeApp(QMainWindow):
 
         self.lesson_description.setStyleSheet(style)
         self.lesson_description.setText(text)
+        if mode in ("success", "complete"):
+            self._fade_in_description()
+
+    def _fade_in_description(self) -> None:
+        """Fade the completion/congratulations message in instead of snapping into view."""
+        effect = QGraphicsOpacityEffect(self.lesson_description)
+        self.lesson_description.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", self.lesson_description)
+        anim.setDuration(350)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._description_fade_anim = anim
+        anim.start()
 
     def _show_statistics(self) -> None:
         """Show the statistics dialog."""

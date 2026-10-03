@@ -6,6 +6,8 @@ without touching window construction.
 
 from typing import Dict
 
+from PyQt6.QtGui import QColor
+
 from core.themes import Theme
 
 
@@ -50,6 +52,11 @@ def accessible_text_color(preferred: str, background: str) -> str:
     if contrast_ratio(preferred, background) >= MIN_TEXT_CONTRAST:
         return preferred
     return contrasting_text_color(background)
+
+
+def darken(color: str, amount: int = 115) -> str:
+    """Return *color* darkened by *amount* percent (>100 darkens, per QColor.darker)."""
+    return QColor(color).darker(amount).name()
 
 
 def build_main_stylesheet(theme: Theme) -> str:
@@ -154,10 +161,37 @@ def build_stat_label_style(bg_color: str) -> str:
 
 
 def build_accent_button_style(bg_color: str) -> str:
-    """Style for accent buttons (Next Text, Generate New Words) tied to a theme color."""
+    """Style for accent buttons (Next Text, Generate New Words), with hover/pressed feedback.
+
+    A widget's own stylesheet isn't merged with its ancestors', so a button that sets
+    one of its own (as these do, to tie their color to a theme accent) must also spell
+    out :hover/:pressed itself or it gets no feedback at all.
+    """
+    text_color = contrasting_text_color(bg_color)
+    hover_color = darken(bg_color, 112)
+    pressed_color = darken(bg_color, 130)
     return (
-        f"background-color: {bg_color}; color: {contrasting_text_color(bg_color)}; padding: 12px; "
-        "font-size: 14px; font-weight: bold; border-radius: 5px;"
+        f"QPushButton {{ background-color: {bg_color}; color: {text_color}; "
+        "padding: 12px; font-size: 14px; font-weight: bold; border: none; border-radius: 5px; } "
+        f"QPushButton:hover {{ background-color: {hover_color}; }} "
+        f"QPushButton:pressed {{ background-color: {pressed_color}; }}"
+    )
+
+
+def build_plain_button_style(theme: Theme) -> str:
+    """Style for neutral buttons (Reset) that still need explicit :hover/:pressed.
+
+    Mirrors the ancestor QPushButton rule in build_main_stylesheet, since a button
+    with its own stylesheet (needed here for padding/font/radius) stops inheriting
+    the ancestor's :hover rule.
+    """
+    pressed_color = darken(theme.button_hover_bg, 115)
+    return (
+        f"QPushButton {{ background-color: {theme.button_bg}; color: {theme.button_text}; "
+        f"border: 1px solid {theme.button_border}; padding: 12px; font-size: 14px; "
+        "border-radius: 5px; } "
+        f"QPushButton:hover {{ background-color: {theme.button_hover_bg}; }} "
+        f"QPushButton:pressed {{ background-color: {pressed_color}; }}"
     )
 
 
