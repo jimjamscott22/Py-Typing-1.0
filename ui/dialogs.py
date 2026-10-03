@@ -57,7 +57,13 @@ from core.transitions import (
     TransitionSummary,
     format_transition_sequence,
 )
-from ui.styles import accessible_text_color, apply_card_shadow, build_main_stylesheet
+from ui.styles import (
+    accessible_text_color,
+    animate_progress_fill,
+    apply_card_shadow,
+    build_accent_button_style,
+    build_main_stylesheet,
+)
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
     DEFAULT_BACKSPACE_ACCURACY_WEIGHT,
@@ -75,6 +81,8 @@ from core.constants import (
     DEFAULT_DAILY_GOAL_MINUTES,
     DEFAULT_WEEKLY_GOAL_SESSIONS,
     TIMED_MODE_OPTIONS,
+    SPACING_SM,
+    SPACING_MD,
 )
 
 class StatisticsDialog(QDialog):
@@ -104,6 +112,7 @@ class StatisticsDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(SPACING_MD)
 
         self._tabs = QTabWidget()
         for title, _ in self._tab_specs:
@@ -112,8 +121,11 @@ class StatisticsDialog(QDialog):
         layout.addWidget(self._tabs)
 
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(SPACING_SM)
 
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
         export_btn = QPushButton("📁 Export to CSV")
+        export_btn.setStyleSheet(build_accent_button_style(theme.accuracy_bg))
         export_btn.clicked.connect(self._export_csv)
         button_layout.addWidget(export_btn)
 
@@ -199,6 +211,7 @@ class StatisticsDialog(QDialog):
         # Create statistics display
         stats_group = QGroupBox("📊 Overall Statistics")
         stats_layout = QGridLayout(stats_group)
+        stats_layout.setSpacing(SPACING_SM)
 
         stats = [
             ("Total Practice Sessions:", str(total_sessions)),
@@ -310,6 +323,7 @@ class StatisticsDialog(QDialog):
         # Best scores group
         best_group = QGroupBox("🏆 Personal Bests")
         best_layout = QGridLayout(best_group)
+        best_layout.setSpacing(SPACING_SM)
 
         if history:
             # Best WPM ever
@@ -480,6 +494,7 @@ class StatisticsDialog(QDialog):
         # Lesson filter — "All Lessons" shows the cumulative global stats,
         # each entry shows a single lesson's per-session error totals.
         filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(SPACING_SM)
         filter_layout.addWidget(QLabel("Show errors for:"))
         self._heatmap_lesson_combo = QComboBox()
         self._heatmap_lesson_combo.addItem("All Lessons", userData=None)
@@ -826,6 +841,7 @@ class AchievementsDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(SPACING_MD)
         statuses = build_achievement_progress(
             self.progress_store.get_session_history(),
             self.progress_store.get_unlocked_achievements(),
@@ -867,6 +883,7 @@ class AchievementsDialog(QDialog):
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(SPACING_SM)
         button_layout.addStretch()
         button_layout.addWidget(close_btn)
         layout.addLayout(button_layout)
@@ -933,7 +950,6 @@ class AchievementsDialog(QDialog):
 
             progress_bar = QProgressBar()
             progress_bar.setRange(0, 100)
-            progress_bar.setValue(status.percent)
             progress_bar.setTextVisible(False)
             progress_bar.setMaximumHeight(10)
             progress_bar.setStyleSheet(
@@ -943,6 +959,7 @@ class AchievementsDialog(QDialog):
                 "border-radius: 5px; }"
             )
             card_layout.addWidget(progress_bar)
+            animate_progress_fill(progress_bar, status.percent)
 
         card_layout.addStretch()
         return card
@@ -962,6 +979,7 @@ class ChallengesDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(SPACING_MD)
         theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
         history = self.progress_store.get_session_history()
         today = date.today()
@@ -990,9 +1008,9 @@ class ChallengesDialog(QDialog):
 
         challenge_bar = QProgressBar()
         challenge_bar.setRange(0, 100)
-        challenge_bar.setValue(progress.percent)
         challenge_bar.setTextVisible(False)
         challenge_layout.addWidget(challenge_bar)
+        animate_progress_fill(challenge_bar, progress.percent)
         layout.addWidget(challenge_group)
 
         current_streak, longest_streak, unique_days = compute_streaks(history)
@@ -1000,6 +1018,7 @@ class ChallengesDialog(QDialog):
 
         summary_group = QGroupBox("📈 Your Progress")
         summary_layout = QGridLayout(summary_group)
+        summary_layout.setSpacing(SPACING_SM)
         summary_rows = [
             ("Current Streak:", f"🔥 {current_streak} day{'s' if current_streak != 1 else ''}"),
             ("Longest Streak:", f"{longest_streak} day{'s' if longest_streak != 1 else ''}"),
@@ -1051,7 +1070,9 @@ class ChallengesDialog(QDialog):
         layout.addWidget(goals_group)
 
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(SPACING_SM)
         save_btn = QPushButton("💾 Save Goals")
+        save_btn.setStyleSheet(build_accent_button_style(theme.wpm_bg))
         save_btn.clicked.connect(self._save_goals)
         button_layout.addWidget(save_btn)
         button_layout.addStretch()
@@ -1083,6 +1104,7 @@ class SettingsDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setSpacing(SPACING_MD)
 
         # Backspace Penalty Settings
         penalty_group = QGroupBox("⌫ Backspace Penalty Settings")
@@ -1235,11 +1257,14 @@ class SettingsDialog(QDialog):
 
         # Buttons
         button_layout = QHBoxLayout()
-        
+        button_layout.setSpacing(SPACING_SM)
+
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
         save_btn = QPushButton("💾 Save Settings")
+        save_btn.setStyleSheet(build_accent_button_style(theme.wpm_bg))
         save_btn.clicked.connect(self._save_settings)
         button_layout.addWidget(save_btn)
-        
+
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
