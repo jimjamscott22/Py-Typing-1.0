@@ -1,4 +1,6 @@
-"""Tests for core/best_wpm.py."""
+"""_summary_
+Tests for the BestWpmTracker class.
+"""
 
 from core.best_wpm import BestWpmTracker
 
