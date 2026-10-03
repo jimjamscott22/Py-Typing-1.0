@@ -6,8 +6,9 @@ without touching window construction.
 
 from typing import Dict
 
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QWidget
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QProgressBar, QWidget
 
 from core.themes import Theme
 
@@ -68,6 +69,17 @@ def apply_card_shadow(widget: QWidget, blur: int = 18, y_offset: int = 3, alpha:
     shadow.setYOffset(y_offset)
     shadow.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(shadow)
+
+
+def animate_progress_fill(bar: QProgressBar, target: int, duration: int = 450) -> None:
+    """Ease a freshly-shown progress bar from 0 up to *target* instead of snapping into view."""
+    bar.setValue(0)
+    anim = QPropertyAnimation(bar, b"value", bar)
+    anim.setDuration(duration)
+    anim.setStartValue(0)
+    anim.setEndValue(target)
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.start()
 
 
 def build_main_stylesheet(theme: Theme) -> str:
