@@ -518,6 +518,52 @@ class TestTransitionsTab:
         assert any("Slowest Trigrams" in title for title in groups)
 
 
+class TestStatisticsTabs:
+    @staticmethod
+    def _pump():
+        for _ in range(3):
+            QApplication.processEvents()
+
+    def test_selecting_each_tab_stays_on_that_tab(self, qapp, store: ProgressStore):
+        """Regression: lazy-loading used to remove/re-insert the clicked tab, which
+        made QTabWidget jump to the neighbouring tab (History -> Error Heatmap)."""
+        store.add_session_record(_dummy_record("2026-01-01T10:00:00", lesson_index=0))
+        dialog = StatisticsDialog(store, [])
+        titles = [dialog._tabs.tabText(i) for i in range(dialog._tabs.count())]
+        try:
+            for index in range(dialog._tabs.count()):
+                dialog._tabs.setCurrentIndex(index)
+                self._pump()
+                assert dialog._tabs.currentIndex() == index
+                assert dialog._tabs.tabText(index) == titles[index]
+                assert index in dialog._built_tabs
+            # Tabs never get reordered or replaced.
+            assert [dialog._tabs.tabText(i) for i in range(dialog._tabs.count())] == titles
+            assert [dialog._tabs.widget(i) for i in range(dialog._tabs.count())] == dialog._tab_pages
+        finally:
+            dialog.close()
+
+    def test_history_tab_lists_sessions_newest_first(self, qapp, store: ProgressStore):
+        store.add_session_record(_dummy_record("2026-01-01T10:00:00", lesson_index=0))
+        newer = _dummy_record("2026-01-02T09:30:00", lesson_index=0)
+        newer.wpm = 55
+        store.add_session_record(newer)
+        dialog = StatisticsDialog(store, [])
+        try:
+            history_index = 3
+            dialog._tabs.setCurrentIndex(history_index)
+            dialog._finish_tab_build(history_index)
+            tables = dialog._tabs.widget(history_index).findChildren(QTableWidget)
+            assert len(tables) == 1
+            table = tables[0]
+            assert table.rowCount() == 2
+            assert table.item(0, 0).text() == "2026-01-02 09:30"
+            assert table.item(0, 2).text() == "55"
+            assert table.item(1, 0).text() == "2026-01-01 10:00"
+        finally:
+            dialog.close()
+
+
 class TestAnalytics:
     def test_streaks_empty(self):
         assert compute_streaks([]) == (0, 0, 0)
