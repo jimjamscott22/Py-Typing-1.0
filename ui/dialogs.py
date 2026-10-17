@@ -2,8 +2,8 @@ import csv
 from datetime import date, datetime
 from typing import List
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -61,8 +61,11 @@ from ui.styles import (
     accessible_text_color,
     animate_progress_fill,
     apply_card_shadow,
+    apply_theme_palette,
     build_accent_button_style,
     build_main_stylesheet,
+    build_plain_button_style,
+    secondary_text_color,
 )
 from core.constants import (
     DEFAULT_BACKSPACE_PENALTY,
@@ -85,6 +88,69 @@ from core.constants import (
     SPACING_MD,
 )
 
+HISTORY_TAB_LIMIT = 50
+
+
+class _SortableItem(QTableWidgetItem):
+    """Table item that sorts by its UserRole value (numbers, ISO timestamps) when set."""
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        mine = self.data(Qt.ItemDataRole.UserRole)
+        theirs = other.data(Qt.ItemDataRole.UserRole)
+        if mine is not None and theirs is not None:
+            try:
+                return mine < theirs
+            except TypeError:
+                pass
+        return self.text().lower() < other.text().lower()
+
+
+class _ChartLabel(QLabel):
+    """Shows a rendered chart, scaled down to the available width (never up).
+
+    Charts are rendered at a fixed size (the keyboard heatmap is ~1400px wide), so
+    a plain QLabel would force horizontal scrolling and push controls off-screen.
+    """
+
+    def __init__(self, pixmap: QPixmap, parent=None):
+        super().__init__(parent)
+        self._source = pixmap
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+        self.setPixmap(pixmap)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        width = min(width, self._source.width())
+        return max(1, round(self._source.height() * width / self._source.width()))
+
+    def sizeHint(self) -> QSize:
+        return self._source.size()
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(200, self.heightForWidth(200))
+
+    def resizeEvent(self, event) -> None:
+        width = min(self.width(), self._source.width())
+        if width != self.pixmap().width():
+            self.setPixmap(
+                self._source.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)
+            )
+        super().resizeEvent(event)
+
+
+def _make_chart_label(pixmap: QPixmap) -> QLabel:
+    if pixmap.isNull():
+        label = QLabel("No data available")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return label
+    return _ChartLabel(pixmap)
+
+
 class StatisticsDialog(QDialog):
     """Dialog displaying comprehensive statistics and session history."""
 
@@ -93,9 +159,11 @@ class StatisticsDialog(QDialog):
         self.progress_store = progress_store
         self.lessons = lessons
         theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        apply_theme_palette(self, theme)
         self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("📊 Typing Statistics")
         self.setMinimumSize(700, 550)
+        self.resize(900, 700)
         self._built_tabs: set[int] = set()
         self._building_tabs: set[int] = set()
         self._chart_cache: dict[tuple, object] = {}
@@ -114,24 +182,42 @@ class StatisticsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(SPACING_MD)
 
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+
+        # Each tab gets a permanent page widget; lazy content is swapped *inside*
+        # the page. Removing/re-inserting tabs instead makes QTabWidget move the
+        # selection to the neighbouring tab, so clicking e.g. "History" used to
+        # land on "Error Heatmap" (and show a blank page).
         self._tabs = QTabWidget()
+        self._tab_pages: list[QWidget] = []
         for title, _ in self._tab_specs:
-            self._tabs.addTab(QWidget(), title)
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            loading_label = QLabel("Loading…")
+            loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            loading_label.setStyleSheet(
+                f"color: {secondary_text_color(theme, theme.bg_primary)};"
+            )
+            page_layout.addWidget(loading_label)
+            self._tab_pages.append(page)
+            self._tabs.addTab(page, title)
         self._tabs.currentChanged.connect(self._ensure_tab_built)
         layout.addWidget(self._tabs)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(SPACING_SM)
 
-        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
         export_btn = QPushButton("📁 Export to CSV")
         export_btn.setStyleSheet(build_accent_button_style(theme.accuracy_bg))
+        export_btn.setToolTip("Save your full session history as a spreadsheet-friendly CSV file")
         export_btn.clicked.connect(self._export_csv)
         button_layout.addWidget(export_btn)
 
         button_layout.addStretch()
 
         close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(build_plain_button_style(theme))
         close_btn.clicked.connect(self.close)
         button_layout.addWidget(close_btn)
 
@@ -145,32 +231,33 @@ class StatisticsDialog(QDialog):
             return
 
         self._building_tabs.add(index)
-        title, _ = self._tab_specs[index]
-        old = self._tabs.widget(index)
-
-        loading = QWidget()
-        loading_layout = QVBoxLayout(loading)
-        loading_label = QLabel("Loading…")
-        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        loading_layout.addWidget(loading_label)
-
-        self._tabs.removeTab(index)
-        self._tabs.insertTab(index, loading, title)
-        if old is not None:
-            old.deleteLater()
-
+        # Yield to the event loop first so the tab switch (and its "Loading…"
+        # placeholder) paints before any slow chart rendering starts.
         QTimer.singleShot(0, lambda idx=index: self._finish_tab_build(idx))
 
     def _finish_tab_build(self, index: int) -> None:
-        """Build a statistics tab after yielding to the event loop."""
+        """Build a statistics tab's content and place it inside its page."""
         if index in self._built_tabs:
             self._building_tabs.discard(index)
             return
 
-        title, builder = self._tab_specs[index]
-        widget = builder()
-        self._tabs.removeTab(index)
-        self._tabs.insertTab(index, widget, title)
+        _, builder = self._tab_specs[index]
+        content = builder()
+        content.layout().setContentsMargins(SPACING_MD, SPACING_MD, SPACING_MD, SPACING_MD)
+
+        # Scroll instead of squashing charts/tables when the dialog is small.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+
+        page_layout = self._tab_pages[index].layout()
+        while page_layout.count():
+            old = page_layout.takeAt(0).widget()
+            if old is not None:
+                old.deleteLater()
+        page_layout.addWidget(scroll)
+
         self._building_tabs.discard(index)
         self._built_tabs.add(index)
 
@@ -230,6 +317,9 @@ class StatisticsDialog(QDialog):
             value_widget.setStyleSheet(f"font-size: 16px; color: {value_color};")
             stats_layout.addWidget(label_widget, i, 0)
             stats_layout.addWidget(value_widget, i, 1)
+        # Keep values next to their labels instead of floating mid-dialog.
+        stats_layout.setHorizontalSpacing(SPACING_MD * 2)
+        stats_layout.setColumnStretch(2, 1)
 
         layout.addWidget(stats_group)
 
@@ -262,7 +352,7 @@ class StatisticsDialog(QDialog):
 
         if not history:
             empty_label = QLabel("No session data yet. Complete some typing exercises to see progress!")
-            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {secondary_text_color(theme, theme.bg_primary)}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
@@ -271,18 +361,11 @@ class StatisticsDialog(QDialog):
         progress_group = QGroupBox("📈 Performance Progress Over Time")
         progress_layout = QVBoxLayout(progress_group)
         
-        progress_chart_label = QLabel()
         progress_pixmap = self._get_cached_chart(
             self._chart_cache_key("combined_progress"),
             lambda: create_combined_progress_chart(history, theme, max_sessions=20),
         )
-        if not progress_pixmap.isNull():
-            progress_chart_label.setPixmap(progress_pixmap)
-            progress_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        else:
-            progress_chart_label.setText("No data available")
-            progress_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+        progress_chart_label = _make_chart_label(progress_pixmap)
         progress_layout.addWidget(progress_chart_label)
         layout.addWidget(progress_group)
 
@@ -290,18 +373,11 @@ class StatisticsDialog(QDialog):
         lesson_group = QGroupBox("📊 Average Performance by Lesson")
         lesson_layout = QVBoxLayout(lesson_group)
         
-        lesson_chart_label = QLabel()
         lesson_pixmap = self._get_cached_chart(
             self._chart_cache_key("lesson_performance"),
             lambda: create_lesson_performance_chart(history, theme),
         )
-        if not lesson_pixmap.isNull():
-            lesson_chart_label.setPixmap(lesson_pixmap)
-            lesson_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        else:
-            lesson_chart_label.setText("No data available")
-            lesson_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+        lesson_chart_label = _make_chart_label(lesson_pixmap)
         lesson_layout.addWidget(lesson_chart_label)
         layout.addWidget(lesson_group)
 
@@ -386,6 +462,8 @@ class StatisticsDialog(QDialog):
         else:
             no_data_label = QLabel("Complete sessions to see your personal bests!")
             best_layout.addWidget(no_data_label, 0, 0, 1, 3)
+        best_layout.setHorizontalSpacing(SPACING_MD * 2)
+        best_layout.setColumnStretch(3, 1)
 
         layout.addWidget(best_group)
 
@@ -451,29 +529,74 @@ class StatisticsDialog(QDialog):
             layout.addWidget(empty_label)
             return widget
 
-        # Create scrollable text display
-        history_text = QTextEdit()
-        history_text.setReadOnly(True)
-        history_text.setFont(QFont("Courier New", 10))
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        recent = list(reversed(history[-HISTORY_TAB_LIMIT:]))  # newest first
 
-        lines = ["Date/Time           | Lesson                    | WPM | Acc%  | Errs | ⌫   | Time"]
-        lines.append("-" * 90)
-        
-        for s in reversed(history[-50:]):  # Show last 50, newest first
-            timestamp = s.get("timestamp", "")[:16]
-            lesson = s.get("lesson_name", "Unknown")[:25].ljust(25)
+        caption = QLabel(
+            f"Your {len(recent)} most recent sessions, newest first. "
+            "Click a column header to sort."
+        )
+        caption.setWordWrap(True)
+        caption.setStyleSheet(f"color: {secondary_text_color(theme, theme.bg_primary)};")
+        layout.addWidget(caption)
+
+        layout.addWidget(self._create_history_table(recent), stretch=1)
+        return widget
+
+    @staticmethod
+    def _create_history_table(sessions: List[dict]) -> QTableWidget:
+        """Build a read-only, sortable table of session records."""
+        headers = ["Date", "Lesson", "WPM", "Accuracy", "Errors", "Backspaces", "Time"]
+        table = QTableWidget(len(sessions), len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        table.setWordWrap(False)
+
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        for row, s in enumerate(sessions):
+            raw_ts = s.get("timestamp", "")
+            try:
+                date_text = datetime.fromisoformat(raw_ts).strftime("%Y-%m-%d %H:%M")
+            except (TypeError, ValueError):
+                date_text = str(raw_ts)[:16]
+            date_item = _SortableItem(date_text)
+            date_item.setData(Qt.ItemDataRole.UserRole, raw_ts)
+            table.setItem(row, 0, date_item)
+            table.setItem(row, 1, _SortableItem(s.get("lesson_name", "Unknown")))
+
             wpm = s.get("wpm", 0)
             acc = s.get("accuracy", 0)
             errors = s.get("errors", 0)
             backspaces = s.get("backspaces", 0)
             duration = s.get("duration_seconds", 0)
-            
-            lines.append(f"{timestamp} | {lesson} | {wpm:3d} | {acc:5.1f} | {errors:4d} | {backspaces:3d} | {duration:5.1f}s")
+            for column, (value, text) in enumerate(
+                (
+                    (wpm, f"{wpm}"),
+                    (acc, f"{acc:.1f}%"),
+                    (errors, f"{errors}"),
+                    (backspaces, f"{backspaces}"),
+                    (duration, f"{duration:.1f}s"),
+                ),
+                start=2,
+            ):
+                item = _SortableItem()
+                item.setData(Qt.ItemDataRole.DisplayRole, text)
+                item.setData(Qt.ItemDataRole.UserRole, value)
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                )
+                table.setItem(row, column, item)
 
-        history_text.setText("\n".join(lines))
-        layout.addWidget(history_text)
-
-        return widget
+        table.setSortingEnabled(True)
+        header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)  # newest first
+        return table
 
     def _create_heatmap_tab(self) -> QWidget:
         """Create the error heatmap tab showing problem keys, filterable by lesson."""
@@ -486,7 +609,7 @@ class StatisticsDialog(QDialog):
 
         if not global_stats:
             empty_label = QLabel("No error data yet. Complete some typing exercises to see your problem keys!")
-            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {secondary_text_color(theme, theme.bg_primary)}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
@@ -552,7 +675,7 @@ class StatisticsDialog(QDialog):
 
         if not key_error_stats:
             empty_label = QLabel("No error data for this lesson yet.")
-            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {secondary_text_color(theme, theme.bg_primary)}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return
@@ -574,7 +697,6 @@ class StatisticsDialog(QDialog):
         heatmap_group = QGroupBox("⌨️ Keyboard Error Heatmap")
         heatmap_layout = QVBoxLayout(heatmap_group)
 
-        heatmap_label = QLabel()
         heatmap_cache_key = self._chart_cache_key(
             "keyboard_heatmap",
             extra=f"{metric_label}:{sorted(display_stats.items())!r}",
@@ -588,11 +710,7 @@ class StatisticsDialog(QDialog):
                 value_suffix=value_suffix,
             ),
         )
-        if not heatmap_pixmap.isNull():
-            heatmap_label.setPixmap(heatmap_pixmap)
-        else:
-            heatmap_label.setText("No data available")
-        heatmap_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        heatmap_label = _make_chart_label(heatmap_pixmap)
         heatmap_layout.addWidget(heatmap_label)
         layout.addWidget(heatmap_group)
 
@@ -600,7 +718,6 @@ class StatisticsDialog(QDialog):
         finger_group = QGroupBox("👆 Errors by Finger")
         finger_layout = QVBoxLayout(finger_group)
 
-        finger_chart_label = QLabel()
         finger_cache_key = self._chart_cache_key(
             "finger_errors",
             extra=str(sorted(key_error_stats.items())),
@@ -609,11 +726,7 @@ class StatisticsDialog(QDialog):
             finger_cache_key,
             lambda: create_finger_error_chart(key_error_stats, theme),
         )
-        if not finger_pixmap.isNull():
-            finger_chart_label.setPixmap(finger_pixmap)
-        else:
-            finger_chart_label.setText("No data available")
-        finger_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        finger_chart_label = _make_chart_label(finger_pixmap)
         finger_layout.addWidget(finger_chart_label)
         layout.addWidget(finger_group)
 
@@ -663,7 +776,7 @@ class StatisticsDialog(QDialog):
 
         if not timeseries:
             empty_label = QLabel("No error trend data yet. Complete some typing exercises to track your progress!")
-            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {secondary_text_color(theme, theme.bg_primary)}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(empty_label)
             return widget
@@ -671,16 +784,11 @@ class StatisticsDialog(QDialog):
         trends_group = QGroupBox("📉 Errors Over Time")
         trends_layout = QVBoxLayout(trends_group)
 
-        trends_label = QLabel()
         trends_pixmap = self._get_cached_chart(
             self._chart_cache_key("error_timeseries"),
             lambda: create_error_timeseries_chart(timeseries, theme),
         )
-        if not trends_pixmap.isNull():
-            trends_label.setPixmap(trends_pixmap)
-        else:
-            trends_label.setText("No data available")
-        trends_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        trends_label = _make_chart_label(trends_pixmap)
         trends_layout.addWidget(trends_label)
         layout.addWidget(trends_group)
 
@@ -739,7 +847,7 @@ class StatisticsDialog(QDialog):
                 "No transition timing data yet. Complete a manually typed "
                 "session to begin collecting it."
             )
-            empty_label.setStyleSheet(f"font-size: 14px; color: {theme.text_secondary}; padding: 20px;")
+            empty_label.setStyleSheet(f"font-size: 14px; color: {secondary_text_color(theme, theme.bg_primary)}; padding: 20px;")
             empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty_label.setWordWrap(True)
             layout.addWidget(empty_label)
@@ -751,15 +859,8 @@ class StatisticsDialog(QDialog):
             "observations of a sequence."
         )
         explanation.setWordWrap(True)
-        explanation.setStyleSheet(f"color: {theme.text_secondary}; padding: 4px 0;")
+        explanation.setStyleSheet(f"color: {secondary_text_color(theme, theme.bg_primary)}; padding: 4px 0;")
         layout.addWidget(explanation)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
 
         for title, ngram_size in (("Slowest Bigrams", 2), ("Slowest Trigrams", 3)):
             group = QGroupBox(f"⌨️ {title}")
@@ -774,12 +875,18 @@ class StatisticsDialog(QDialog):
                 collecting_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 group_layout.addWidget(collecting_label)
             else:
-                group_layout.addWidget(self._create_transition_table(summaries))
-            container_layout.addWidget(group)
+                table = self._create_transition_table(summaries)
+                # The tab itself scrolls, so show every row instead of nesting scrollbars.
+                table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                table.setMinimumHeight(
+                    table.horizontalHeader().sizeHint().height()
+                    + sum(table.rowHeight(r) for r in range(table.rowCount()))
+                    + 2 * table.frameWidth()
+                )
+                group_layout.addWidget(table)
+            layout.addWidget(group)
 
-        container_layout.addStretch()
-        scroll.setWidget(container)
-        layout.addWidget(scroll)
+        layout.addStretch()
         return widget
 
     def _export_csv(self) -> None:
@@ -833,6 +940,7 @@ class AchievementsDialog(QDialog):
         self.progress_store = progress_store
         self.lessons = lessons
         theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        apply_theme_palette(self, theme)
         self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🏅 Achievements & Badges")
         self.setMinimumSize(760, 560)
@@ -881,6 +989,7 @@ class AchievementsDialog(QDialog):
         layout.addWidget(scroll)
 
         close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(build_plain_button_style(theme))
         close_btn.clicked.connect(self.close)
         button_layout = QHBoxLayout()
         button_layout.setSpacing(SPACING_SM)
@@ -919,7 +1028,7 @@ class AchievementsDialog(QDialog):
         state_color = (
             accessible_text_color(theme.wpm_bg, theme.bg_secondary)
             if status.earned
-            else theme.text_secondary
+            else secondary_text_color(theme, theme.bg_secondary)
         )
         state.setStyleSheet(f"font-weight: bold; color: {state_color};")
         title_row.addWidget(state)
@@ -929,7 +1038,7 @@ class AchievementsDialog(QDialog):
         description.setWordWrap(True)
         description.setMinimumWidth(0)
         description.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        description.setStyleSheet(f"color: {theme.text_secondary};")
+        description.setStyleSheet(f"color: {secondary_text_color(theme, theme.bg_secondary)};")
         card_layout.addWidget(description)
 
         if status.earned:
@@ -945,7 +1054,7 @@ class AchievementsDialog(QDialog):
             card_layout.addWidget(progress_label)
         else:
             progress_label = QLabel(status.progress_text)
-            progress_label.setStyleSheet(f"color: {theme.text_secondary};")
+            progress_label.setStyleSheet(f"color: {secondary_text_color(theme, theme.bg_secondary)};")
             card_layout.addWidget(progress_label)
 
             progress_bar = QProgressBar()
@@ -972,6 +1081,7 @@ class ChallengesDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        apply_theme_palette(self, theme)
         self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("🎯 Challenges & Goals")
         self.setMinimumWidth(480)
@@ -1002,7 +1112,7 @@ class ChallengesDialog(QDialog):
         completed_color = accessible_text_color(theme.wpm_bg, theme.bg_primary)
         status_label.setStyleSheet(
             f"font-weight: bold; color: {completed_color};" if progress.completed
-            else f"color: {theme.text_secondary};"
+            else f"color: {secondary_text_color(theme, theme.bg_primary)};"
         )
         challenge_layout.addWidget(status_label)
 
@@ -1046,7 +1156,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if daily_met else ''}{daily_minutes:.0f} / {daily_goal:.0f} min today"
         )
         self.daily_goal_status.setStyleSheet(
-            f"color: {completed_color};" if daily_met else f"color: {theme.text_secondary};"
+            f"color: {completed_color};" if daily_met else f"color: {secondary_text_color(theme, theme.bg_primary)};"
         )
         goals_layout.addRow("", self.daily_goal_status)
 
@@ -1063,7 +1173,7 @@ class ChallengesDialog(QDialog):
             f"{'✓ ' if weekly_met else ''}{weekly_count} / {weekly_goal} sessions this week"
         )
         self.weekly_goal_status.setStyleSheet(
-            f"color: {completed_color};" if weekly_met else f"color: {theme.text_secondary};"
+            f"color: {completed_color};" if weekly_met else f"color: {secondary_text_color(theme, theme.bg_primary)};"
         )
         goals_layout.addRow("", self.weekly_goal_status)
 
@@ -1077,6 +1187,7 @@ class ChallengesDialog(QDialog):
         button_layout.addWidget(save_btn)
         button_layout.addStretch()
         close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(build_plain_button_style(theme))
         close_btn.clicked.connect(self.close)
         button_layout.addWidget(close_btn)
         layout.addLayout(button_layout)
@@ -1097,14 +1208,29 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.progress_store = progress_store
         theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        apply_theme_palette(self, theme)
         self.setStyleSheet(build_main_stylesheet(theme))
         self.setWindowTitle("⚙️ Settings")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(520)
         self._build_ui()
+
+    def _slider_row(self, slider: QSlider, value_label: QLabel) -> QWidget:
+        """Put a slider and its live value readout on one line."""
+        value_label.setMinimumWidth(170)
+        value_label.setStyleSheet(f"color: {self._value_text_color};")
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(SPACING_MD)
+        row_layout.addWidget(slider, stretch=1)
+        row_layout.addWidget(value_label)
+        return row
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(SPACING_MD)
+        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        self._value_text_color = secondary_text_color(theme, theme.bg_primary)
 
         # Backspace Penalty Settings
         penalty_group = QGroupBox("⌫ Backspace Penalty Settings")
@@ -1120,8 +1246,9 @@ class SettingsDialog(QDialog):
         self.wpm_penalty_slider.valueChanged.connect(
             lambda v: self.wpm_penalty_label.setText(f"{v} WPM per backspace")
         )
-        penalty_layout.addRow("WPM Penalty:", self.wpm_penalty_slider)
-        penalty_layout.addRow("", self.wpm_penalty_label)
+        penalty_layout.addRow(
+            "WPM Penalty:", self._slider_row(self.wpm_penalty_slider, self.wpm_penalty_label)
+        )
 
         # Accuracy weight slider (0.0 to 2.0, stored as 0-20)
         self.acc_weight_slider = QSlider(Qt.Orientation.Horizontal)
@@ -1132,8 +1259,9 @@ class SettingsDialog(QDialog):
         self.acc_weight_slider.valueChanged.connect(
             lambda v: self.acc_weight_label.setText(f"{v / 10:.1f} errors per backspace")
         )
-        penalty_layout.addRow("Accuracy Weight:", self.acc_weight_slider)
-        penalty_layout.addRow("", self.acc_weight_label)
+        penalty_layout.addRow(
+            "Accuracy Weight:", self._slider_row(self.acc_weight_slider, self.acc_weight_label)
+        )
 
         # Strict mode checkbox
         self.strict_mode_check = QCheckBox("Enable Strict Mode (disable backspace entirely)")
@@ -1258,17 +1386,19 @@ class SettingsDialog(QDialog):
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(SPACING_SM)
+        button_layout.addStretch()
 
-        theme = get_theme(self.progress_store.get_setting("theme", DEFAULT_THEME))
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(build_plain_button_style(theme))
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
         save_btn = QPushButton("💾 Save Settings")
         save_btn.setStyleSheet(build_accent_button_style(theme.wpm_bg))
+        save_btn.setDefault(True)
         save_btn.clicked.connect(self._save_settings)
         button_layout.addWidget(save_btn)
 
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
-        
         layout.addLayout(button_layout)
 
     def _save_settings(self) -> None:

@@ -122,3 +122,32 @@ def test_dialogs_paint_the_background_used_for_contrast(qapp, tmp_path: Path, th
         for dialog in dialogs:
             dialog.close()
         store.close()
+
+
+@pytest.mark.parametrize("theme", THEMES.values(), ids=lambda theme: theme.name)
+def test_secondary_text_is_readable_on_dialog_backgrounds(theme):
+    for background in (theme.bg_primary, theme.bg_secondary):
+        color = styles.secondary_text_color(theme, background)
+        assert _contrast(color, background) >= 4.5
+
+
+def test_secondary_text_keeps_theme_color_when_readable():
+    theme = THEMES["Dark"]
+    assert styles.secondary_text_color(theme, theme.bg_primary) == theme.text_secondary
+
+
+@pytest.mark.parametrize("theme", THEMES.values(), ids=lambda theme: theme.name)
+def test_form_controls_are_themed(qapp, theme):
+    """Checkbox labels, inputs, tabs and tables must not fall back to the light
+    system palette (unreadable on dark themes)."""
+    sheet = styles.build_main_stylesheet(theme)
+    for selector in ("QCheckBox", "QComboBox", "QSpinBox", "QTabBar::tab", "QHeaderView::section"):
+        assert selector in sheet
+    assert f"color: {theme.text_primary};" in sheet
+
+
+@pytest.mark.parametrize("kind", ["up", "down", "check"])
+def test_indicator_images_are_generated(qapp, kind):
+    path = Path(styles.indicator_image_path(kind, "#123456"))
+    assert path.is_file()
+    assert path.stat().st_size > 0
