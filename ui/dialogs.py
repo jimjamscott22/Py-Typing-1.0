@@ -73,6 +73,7 @@ from core.constants import (
     DEFAULT_STRICT_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
+    DEFAULT_REALTIME_FEEDBACK,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
     DEFAULT_DEVELOPER_KEYS_LENGTH,
@@ -1302,6 +1303,19 @@ class SettingsDialog(QDialog):
         )
         display_layout.addRow(self.show_keyboard_check)
 
+        # Real-time feedback
+        self.realtime_feedback_check = QCheckBox(
+            "Show Real-Time Feedback (mistakes, burst speed & rhythm)"
+        )
+        self.realtime_feedback_check.setChecked(
+            self.progress_store.get_setting("realtime_feedback", DEFAULT_REALTIME_FEEDBACK)
+        )
+        self.realtime_feedback_check.setToolTip(
+            "Display live rhythm consistency, burst WPM, best WPM pace delta, "
+            "mistake callouts, and dual-key error highlights while typing."
+        )
+        display_layout.addRow(self.realtime_feedback_check)
+
         # Font size
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(12, 28)
@@ -1410,6 +1424,7 @@ class SettingsDialog(QDialog):
             "theme": self.theme_combo.currentText(),
             "show_celebration": self.celebration_check.isChecked(),
             "show_keyboard": self.show_keyboard_check.isChecked(),
+            "realtime_feedback": self.realtime_feedback_check.isChecked(),
             "font_size": self.font_size_spin.value(),
             "random_word_count": self.word_count_spin.value(),
             "adaptive_drills": self.adaptive_drills_check.isChecked(),

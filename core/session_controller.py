@@ -18,6 +18,7 @@ from core.challenges import Challenge, evaluate_challenge_progress, get_daily_ch
 from core.constants import DAILY_CHALLENGE_COIN_REWARD, SESSION_COIN_REWARD
 from core.models import SessionRecord, TypingSession
 from core.persistence import ProgressStore
+from core.realtime_feedback import RealtimeFeedbackTracker
 from core.scoring import calculate_accuracy, calculate_wpm
 from core.transitions import TextChange, TransitionTracker, aggregate_transition_samples
 
@@ -62,6 +63,7 @@ class SessionController:
         self.backspace_accuracy_weight = backspace_accuracy_weight
         self._transition_clock = transition_clock
         self.transition_tracker = TransitionTracker()
+        self.feedback_tracker = RealtimeFeedbackTracker()
         self.session = TypingSession()
         self.round_complete = False
         self._weak_round_id = str(uuid4())
@@ -71,6 +73,7 @@ class SessionController:
         """Clear session state for a fresh round."""
         self.session.reset()
         self.transition_tracker.reset()
+        self.feedback_tracker.reset()
         self._weak_round_id = str(uuid4())
         self._weak_round_saved = False
         self.round_complete = False
@@ -81,6 +84,7 @@ class SessionController:
         self.session.errors = sum(
             actual != expected for actual, expected in zip(typed_text, target_text)
         )
+        self.feedback_tracker.sync_typed_text(typed_text, target_text)
         just_began = False
         if not self.session.is_active and typed_text:
             self.session.begin()
@@ -106,6 +110,7 @@ class SessionController:
             self.session.transition_samples.extend(
                 self.transition_tracker.record_change(change, target_text, timestamp)
             )
+            self.feedback_tracker.record_change(change, target_text, timestamp)
 
     def save_weak_key_round(
         self, mode: str, warmup_mode: bool, answer_imported: bool, lesson_index: int,

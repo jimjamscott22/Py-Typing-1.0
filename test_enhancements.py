@@ -903,3 +903,149 @@ class TestRewardsIntegration:
         window.typing_input.setPlainText(target)
 
         assert window.progress_store.get_coins_total() == 0
+
+
+class TestRealtimeFeedbackTracker:
+    def test_mistake_feedback_includes_finger_and_key_names(self):
+        from core.realtime_feedback import RealtimeFeedbackTracker, build_mistake_feedback
+        from core.transitions import TextChange
+
+        mistake = build_mistake_feedback("k", "l")
+        assert mistake.typed_key == "k"
+        assert mistake.expected_key == "l"
+        assert mistake.finger_label == "R.Ring"
+        assert mistake.message == "Typed 'k' → expected 'l' (R.Ring)"
+
+        space_mistake = build_mistake_feedback("n", " ")
+        assert space_mistake.message == "Typed 'n' → expected 'Space' (Thumb)"
+
+        tracker = RealtimeFeedbackTracker()
+        tracker.record_change(TextChange(0, 0, "x"), "asdf", 1.0)
+        assert tracker.last_mistake is not None
+        assert "expected 'a' (L.Pinky)" in tracker.last_mistake.message
+
+        # Correct keystroke clears last_mistake
+        tracker.record_change(TextChange(1, 0, "s"), "asdf", 1.2)
+        assert tracker.last_mistake is None
+
+    def test_rhythm_states_steady_bursting_hesitating(self):
+        from core.realtime_feedback import RealtimeFeedbackTracker
+        from core.transitions import TextChange
+
+        tracker = RealtimeFeedbackTracker()
+        target = "abcdefghijk"
+
+        # Fewer than 3 intervals -> warming up ("--")
+        tracker.record_change(TextChange(0, 0, "a"), target, 1.00)
+        tracker.record_change(TextChange(1, 0, "b"), target, 1.20)
+        tracker.record_change(TextChange(2, 0, "c"), target, 1.40)
+        snap = tracker.rhythm_snapshot()
+        assert snap.consistency_percent is None
+        assert snap.state == "--"
+
+        # 3 steady 200ms intervals -> 100% Steady
+        tracker.record_change(TextChange(3, 0, "d"), target, 1.60)
+        snap = tracker.rhythm_snapshot()
+        assert snap.consistency_percent == 100
+        assert snap.state == "Steady"
+
+        # Two fast intervals (120ms each after 200ms baseline) -> Bursting
+        tracker.record_change(TextChange(4, 0, "e"), target, 1.72)
+        tracker.record_change(TextChange(5, 0, "f"), target, 1.84)
+        snap = tracker.rhythm_snapshot()
+        assert snap.state == "Bursting"
+
+        # Long hesitation spike (600ms) -> Hesitating
+        tracker.record_change(TextChange(6, 0, "g"), target, 2.44)
+        snap = tracker.rhythm_snapshot()
+        assert snap.state == "Hesitating"
+
+    def test_speed_snapshot_rolling_wpm_and_best_delta(self):
+        from core.realtime_feedback import RealtimeFeedbackTracker
+        from core.transitions import TextChange
+
+        tracker = RealtimeFeedbackTracker()
+        target = "abcdef"
+        # 6 keystrokes = 5 intervals of 0.2s = 1.0s total -> 1 word in 1/60 min = 60 WPM
+        for idx, ch in enumerate(target):
+            tracker.record_change(TextChange(idx, 0, ch), target, 10.0 + idx * 0.2)
+
+        speed = tracker.speed_snapshot(effective_wpm=55, best_wpm=50)
+        assert speed.rolling_wpm == 60
+        assert speed.best_delta == 5
+
+        slower = tracker.speed_snapshot(effective_wpm=42, best_wpm=50)
+        assert slower.best_delta == -8
+
+
+class TestRealtimeFeedbackUI:
+    def test_mistake_updates_callout_and_dual_keyboard_highlights(self, window):
+        window.load_lesson(0)
+        target = window.current_target_text
+        expected_first = target[0]
+        wrong_char = "z" if expected_first != "z" else "x"
+
+        window.typing_input.setPlainText(wrong_char)
+        QApplication.processEvents()
+
+        assert not window.mistake_callout_label.isHidden()
+        assert f"Typed '{wrong_char}' → expected '{expected_first}'" in window.mistake_callout_label.text()
+        assert window.keyboard_widget.error_key == expected_first
+        assert window.keyboard_widget.wrong_key == wrong_char
+
+        # Correcting the character clears callout and wrong_key
+        window.typing_input.setPlainText(expected_first)
+        QApplication.processEvents()
+        assert window.mistake_callout_label.isHidden()
+        assert window.keyboard_widget.wrong_key == ""
+        assert window.keyboard_widget.error_key == ""
+
+    def test_rhythm_and_speed_labels_update_live(self, window):
+        import time
+        from core.transitions import TextChange
+
+        window.load_lesson(0)
+        window.best_wpm.update("0", 50)
+        target = window.current_target_text[:5]
+
+        clock_times = iter([1.0, 1.2, 1.4, 1.6, 1.8])
+        window.controller._transition_clock = lambda: next(clock_times)
+
+        typed_so_far = ""
+        for idx, ch in enumerate(target):
+            typed_so_far += ch
+            window.controller.record_edit([TextChange(idx, 0, ch)], window.current_target_text)
+            window.session.typed_text = typed_so_far
+            if not window.session.is_active:
+                window.session.begin()
+
+        window.session.start_time = time.time() - 1.0
+        window.update_display()
+
+        assert "Steady" in window.rhythm_label.text()
+        assert "Burst:" in window.wpm_label.text()
+        assert ("▲" in window.best_wpm_label.text()) or ("▼" in window.best_wpm_label.text())
+
+    def test_disabling_realtime_feedback_in_settings_hides_indicators(self, window):
+        window.load_lesson(0)
+        target = window.current_target_text
+        expected_first = target[0]
+        wrong_char = "z" if expected_first != "z" else "x"
+
+        window.typing_input.setPlainText(wrong_char)
+        QApplication.processEvents()
+        assert not window.mistake_callout_label.isHidden()
+        assert window.keyboard_widget.wrong_key == wrong_char
+
+        dialog = SettingsDialog(window.progress_store, window)
+        dialog.settings_changed.connect(window._on_settings_changed)
+        dialog.realtime_feedback_check.setChecked(False)
+        dialog._save_settings()
+
+        assert window._realtime_feedback is False
+        assert window.rhythm_label.isHidden()
+        assert window.mistake_callout_label.isHidden()
+        assert window.keyboard_widget.wrong_key == ""
+        assert window.keyboard_widget.error_key == expected_first
+        assert "Burst:" not in window.wpm_label.text()
+
