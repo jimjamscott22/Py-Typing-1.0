@@ -977,6 +977,50 @@ class TestRealtimeFeedbackTracker:
         slower = tracker.speed_snapshot(effective_wpm=42, best_wpm=50)
         assert slower.best_delta == -8
 
+    def test_mistake_keystroke_records_interval_before_returning(self):
+        from core.realtime_feedback import RealtimeFeedbackTracker
+        from core.transitions import TextChange
+
+        tracker = RealtimeFeedbackTracker()
+        target = "abcdef"
+
+        # Two 200ms intervals followed by a 600ms hesitation ending in a mistake
+        tracker.record_change(TextChange(0, 0, "a"), target, 1.00)
+        tracker.record_change(TextChange(1, 0, "b"), target, 1.20)
+        tracker.record_change(TextChange(2, 0, "c"), target, 1.40)
+        tracker.record_change(TextChange(3, 0, "z"), target, 2.00)
+
+        snap = tracker.rhythm_snapshot()
+        assert snap.last_interval_ms == pytest.approx(600.0)
+        assert snap.state == "Hesitating"
+        assert tracker.last_mistake is not None
+
+        # Backspace breaks future continuity without losing the recorded hesitation interval
+        tracker.record_change(TextChange(3, 1, ""), target, 2.15)
+        snap_after_bs = tracker.rhythm_snapshot()
+        assert snap_after_bs.last_interval_ms == pytest.approx(600.0)
+        assert snap_after_bs.state == "Hesitating"
+
+    def test_sync_typed_text_preserves_interior_edit_mistake(self):
+        from core.realtime_feedback import RealtimeFeedbackTracker
+        from core.transitions import TextChange
+
+        tracker = RealtimeFeedbackTracker()
+        target = "asdf"
+
+        # User replaces 's' at index 1 with wrong char 'x' while tail 'f' remains correct
+        tracker.record_change(TextChange(1, 1, "x"), target, 1.0)
+        tracker.sync_typed_text("axdf", target)
+
+        assert tracker.last_mistake is not None
+        assert tracker.last_mistake.typed_key == "x"
+        assert tracker.last_mistake.expected_key == "s"
+
+        # Replacing index 1 with the expected 's' clears the mistake
+        tracker.record_change(TextChange(1, 1, "s"), target, 1.2)
+        tracker.sync_typed_text("asdf", target)
+        assert tracker.last_mistake is None
+
 
 class TestRealtimeFeedbackUI:
     def test_mistake_updates_callout_and_dual_keyboard_highlights(self, window):
@@ -996,6 +1040,60 @@ class TestRealtimeFeedbackUI:
         # Correcting the character clears callout and wrong_key
         window.typing_input.setPlainText(expected_first)
         QApplication.processEvents()
+        assert window.mistake_callout_label.isHidden()
+        assert window.keyboard_widget.wrong_key == ""
+        assert window.keyboard_widget.error_key == ""
+
+    def test_interior_edit_mistake_preserves_callout_and_dual_keyboard_highlights(self, window):
+        from PyQt6.QtCore import QEvent, Qt
+        from PyQt6.QtGui import QKeyEvent, QTextCursor
+
+        window.load_lesson(0)
+        target = window.current_target_text
+        prefix = target[:4]
+        expected_mid = prefix[1]
+        wrong_char = "z" if expected_mid != "z" else "x"
+
+        window.typing_input.setPlainText(prefix)
+        QApplication.processEvents()
+        assert window.mistake_callout_label.isHidden()
+
+        # Select character at index 1 and replace it with an incorrect character
+        cursor = window.typing_input.textCursor()
+        cursor.setPosition(1)
+        cursor.setPosition(2, QTextCursor.MoveMode.KeepAnchor)
+        window.typing_input.setTextCursor(cursor)
+
+        key_event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Z if wrong_char == "z" else Qt.Key.Key_X,
+            Qt.KeyboardModifier.NoModifier,
+            wrong_char,
+        )
+        window.typing_input.keyPressEvent(key_event)
+        QApplication.processEvents()
+
+        assert window.typing_input.toPlainText() == prefix[0] + wrong_char + prefix[2:]
+        assert not window.mistake_callout_label.isHidden()
+        assert f"Typed '{wrong_char}' → expected '{expected_mid}'" in window.mistake_callout_label.text()
+        assert window.keyboard_widget.error_key == expected_mid
+        assert window.keyboard_widget.wrong_key == wrong_char
+
+        # Select character at index 1 and replace it with the expected character
+        cursor = window.typing_input.textCursor()
+        cursor.setPosition(1)
+        cursor.setPosition(2, QTextCursor.MoveMode.KeepAnchor)
+        window.typing_input.setTextCursor(cursor)
+
+        fix_event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_F,
+            Qt.KeyboardModifier.NoModifier,
+            expected_mid,
+        )
+        window.typing_input.keyPressEvent(fix_event)
+        QApplication.processEvents()
+
         assert window.mistake_callout_label.isHidden()
         assert window.keyboard_widget.wrong_key == ""
         assert window.keyboard_widget.error_key == ""
@@ -1027,15 +1125,35 @@ class TestRealtimeFeedbackUI:
         assert ("▲" in window.best_wpm_label.text()) or ("▼" in window.best_wpm_label.text())
 
     def test_disabling_realtime_feedback_in_settings_hides_indicators(self, window):
-        window.load_lesson(0)
-        target = window.current_target_text
-        expected_first = target[0]
-        wrong_char = "z" if expected_first != "z" else "x"
+        import time
+        from core.transitions import TextChange
 
-        window.typing_input.setPlainText(wrong_char)
-        QApplication.processEvents()
+        window.load_lesson(0)
+        window.best_wpm.update("0", 50)
+        target = window.current_target_text
+        correct_prefix = target[:4]
+        expected_fifth = target[4]
+        wrong_char = "z" if expected_fifth != "z" else "x"
+
+        clock_times = iter([1.0, 1.2, 1.4, 1.6, 1.8])
+        window.controller._transition_clock = lambda: next(clock_times)
+
+        typed_so_far = ""
+        for idx, ch in enumerate(correct_prefix + wrong_char):
+            typed_so_far += ch
+            window.controller.record_edit([TextChange(idx, 0, ch)], target)
+            window.controller.update_typed_text(typed_so_far, target)
+
+        window.session.start_time = time.time() - 1.0
+        window.update_display()
+        window._update_keyboard_highlight()
+
+        assert not window.rhythm_label.isHidden()
+        assert "Steady" in window.rhythm_label.text()
         assert not window.mistake_callout_label.isHidden()
         assert window.keyboard_widget.wrong_key == wrong_char
+        assert "Burst:" in window.wpm_label.text()
+        assert ("▲" in window.best_wpm_label.text()) or ("▼" in window.best_wpm_label.text())
 
         dialog = SettingsDialog(window.progress_store, window)
         dialog.settings_changed.connect(window._on_settings_changed)
@@ -1044,8 +1162,13 @@ class TestRealtimeFeedbackUI:
 
         assert window._realtime_feedback is False
         assert window.rhythm_label.isHidden()
+        assert window.rhythm_label.text() == "Rhythm: --"
         assert window.mistake_callout_label.isHidden()
+        assert window.mistake_callout_label.text() == ""
         assert window.keyboard_widget.wrong_key == ""
-        assert window.keyboard_widget.error_key == expected_first
+        assert window.keyboard_widget.error_key == expected_fifth
         assert "Burst:" not in window.wpm_label.text()
+        assert "▲" not in window.best_wpm_label.text()
+        assert "▼" not in window.best_wpm_label.text()
+        assert window.best_wpm_label.text() == "Best: 50"
 

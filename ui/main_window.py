@@ -635,7 +635,7 @@ class TypingPracticeApp(QMainWindow):
         self._realtime_feedback = bool(
             self.progress_store.get_setting("realtime_feedback", DEFAULT_REALTIME_FEEDBACK)
         )
-        self.rhythm_label.setVisible(self._realtime_feedback)
+        self._refresh_realtime_feedback_indicators()
 
         # Load and apply theme
         theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
@@ -656,7 +656,7 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
-        self._update_keyboard_highlight()
+        self._refresh_realtime_feedback_indicators()
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -1266,6 +1266,18 @@ class TypingPracticeApp(QMainWindow):
         typed_len = len(self.session.typed_text)
         target_len = len(self.current_target_text)
 
+        mistake = self.controller.feedback_tracker.last_mistake
+        if (
+            self._realtime_feedback
+            and mistake is not None
+            and mistake.expected_key
+            and 0 < typed_len <= target_len
+        ):
+            self.keyboard_widget.set_next_key(
+                mistake.expected_key, error=True, wrong_key=mistake.typed_key
+            )
+            return
+
         if typed_len >= target_len:
             self.keyboard_widget.clear_highlights()
             return
@@ -1447,6 +1459,16 @@ class TypingPracticeApp(QMainWindow):
             self.typing_input.setTextCursor(restored_cursor)
             self.typing_input.blockSignals(False)
 
+    def _refresh_realtime_feedback_indicators(self) -> None:
+        """Refresh or clear all real-time feedback labels and keyboard highlights."""
+        typed = self.session.typed_text
+        wpm = self._calculate_wpm(typed)
+        self._update_wpm_label(typed, wpm=wpm)
+        self._update_rhythm_label()
+        self._update_best_wpm_label(current_wpm=wpm)
+        self._update_mistake_callout()
+        self._update_keyboard_highlight()
+
     def _update_wpm_label(self, typed: str, wpm: Optional[int] = None) -> None:
         if wpm is None:
             wpm = self._calculate_wpm(typed)
@@ -1460,6 +1482,7 @@ class TypingPracticeApp(QMainWindow):
     def _update_rhythm_label(self) -> None:
         self.rhythm_label.setVisible(self._realtime_feedback)
         if not self._realtime_feedback:
+            self.rhythm_label.setText("Rhythm: --")
             return
         snapshot = self.controller.feedback_tracker.rhythm_snapshot()
         if snapshot.consistency_percent is None:

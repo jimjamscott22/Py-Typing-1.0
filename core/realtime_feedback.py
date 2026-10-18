@@ -105,6 +105,7 @@ class RealtimeFeedbackTracker:
         self._intervals_ms: Deque[float] = deque(maxlen=RHYTHM_WINDOW_SIZE)
         self._keystroke_times: Deque[float] = deque(maxlen=ROLLING_SPEED_KEYSTROKES)
         self._last_timestamp: Optional[float] = None
+        self._mistake_position: Optional[int] = None
         self.last_mistake: Optional[MistakeFeedback] = None
 
     def reset(self) -> None:
@@ -112,6 +113,7 @@ class RealtimeFeedbackTracker:
         self._intervals_ms.clear()
         self._keystroke_times.clear()
         self._last_timestamp = None
+        self._mistake_position = None
         self.last_mistake = None
 
     def record_change(
@@ -124,6 +126,17 @@ class RealtimeFeedbackTracker:
         if change.removed > 0 and not change.inserted:
             # Backspace/deletion: break interval chain
             self._last_timestamp = None
+            if (
+                self._mistake_position is not None
+                and change.position <= self._mistake_position < change.position + change.removed
+            ):
+                self._mistake_position = None
+                self.last_mistake = None
+            elif (
+                self._mistake_position is not None
+                and change.position + change.removed <= self._mistake_position
+            ):
+                self._mistake_position -= change.removed
             return
 
         if not change.inserted:
@@ -132,29 +145,13 @@ class RealtimeFeedbackTracker:
         if len(change.inserted) != 1:
             # Multi-character paste: reset timing continuity
             self._last_timestamp = None
+            self._mistake_position = None
+            self.last_mistake = None
             return
 
         char = change.inserted
         pos = change.position
         self._keystroke_times.append(timestamp)
-
-        if 0 <= pos < len(target_text):
-            expected = target_text[pos]
-            if char != expected:
-                self.last_mistake = build_mistake_feedback(char, expected)
-                self._last_timestamp = timestamp
-                return
-            self.last_mistake = None
-        else:
-            # Overrun beyond target length
-            self.last_mistake = MistakeFeedback(
-                typed_key=char,
-                expected_key="",
-                finger_label=None,
-                message=f"Extra '{describe_key(char)}' beyond target text",
-            )
-            self._last_timestamp = timestamp
-            return
 
         if self._last_timestamp is not None:
             gap = timestamp - self._last_timestamp
@@ -163,10 +160,29 @@ class RealtimeFeedbackTracker:
 
         self._last_timestamp = timestamp
 
+        if 0 <= pos < len(target_text):
+            expected = target_text[pos]
+            if char != expected:
+                self.last_mistake = build_mistake_feedback(char, expected)
+                self._mistake_position = pos
+                return
+            self.last_mistake = None
+            self._mistake_position = None
+        else:
+            # Overrun beyond target length
+            self.last_mistake = MistakeFeedback(
+                typed_key=char,
+                expected_key="",
+                finger_label=None,
+                message=f"Extra '{describe_key(char)}' beyond target text",
+            )
+            self._mistake_position = pos
+
     def sync_typed_text(self, typed_text: str, target_text: str) -> None:
-        """Keep `last_mistake` consistent with the current tail of `typed_text`."""
+        """Keep `last_mistake` consistent with `typed_text`, preserving active interior edits."""
         if not typed_text or not target_text:
             self.last_mistake = None
+            self._mistake_position = None
             return
 
         typed_len = len(typed_text)
@@ -179,7 +195,22 @@ class RealtimeFeedbackTracker:
                 finger_label=None,
                 message=f"Extra '{describe_key(last_char)}' beyond target text",
             )
+            self._mistake_position = typed_len - 1
             return
+
+        if (
+            self.last_mistake is not None
+            and self._mistake_position is not None
+            and 0 <= self._mistake_position < typed_len
+        ):
+            pos = self._mistake_position
+            if (
+                typed_text[pos] != target_text[pos]
+                and typed_text[pos] == self.last_mistake.typed_key
+                and target_text[pos] == self.last_mistake.expected_key
+            ):
+                return
+        self._mistake_position = None
 
         last_typed = typed_text[-1]
         expected = target_text[typed_len - 1]
