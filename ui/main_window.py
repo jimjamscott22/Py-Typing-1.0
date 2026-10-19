@@ -46,6 +46,7 @@ from core.constants import (
     DEFAULT_STRICT_MODE,
     DEFAULT_SHOW_KEYBOARD,
     DEFAULT_SHOW_CELEBRATION,
+    DEFAULT_REALTIME_FEEDBACK,
     DEFAULT_FONT_SIZE,
     DEFAULT_RANDOM_WORD_COUNT,
     DEFAULT_DEVELOPER_KEYS_LENGTH,
@@ -127,6 +128,7 @@ class TypingPracticeApp(QMainWindow):
         self._strict_mode = DEFAULT_STRICT_MODE
         self._timed_mode_seconds = DEFAULT_TIMED_MODE_SECONDS
         self._adaptive_drills = DEFAULT_ADAPTIVE_DRILLS
+        self._realtime_feedback = DEFAULT_REALTIME_FEEDBACK
 
         # Initialize the celebration sound manager with this window as parent
         CelebrationSoundManager.initialize(self)
@@ -421,7 +423,7 @@ class TypingPracticeApp(QMainWindow):
         layout.addWidget(self.free_controls)
 
     def _add_input_section(self, layout: QVBoxLayout) -> None:
-        # Header row with input label and strict mode indicator
+        # Header row with input label, mistake callout, and strict mode indicator
         input_header = QHBoxLayout()
         input_header.setSpacing(SPACING_SM)
 
@@ -430,6 +432,12 @@ class TypingPracticeApp(QMainWindow):
         input_header.addWidget(input_label)
         
         input_header.addStretch()
+
+        # Live mistake callout badge
+        self.mistake_callout_label = QLabel("")
+        self._style_mistake_callout_label()
+        self.mistake_callout_label.setVisible(False)
+        input_header.addWidget(self.mistake_callout_label)
         
         # Strict mode indicator
         self.strict_mode_indicator = QLabel("🔒 STRICT MODE")
@@ -495,6 +503,13 @@ class TypingPracticeApp(QMainWindow):
         self.accuracy_label.setStyleSheet(build_stat_label_style(theme.accuracy_bg))
         self.accuracy_label.setToolTip("Typing accuracy (adjusted for backspace usage)")
         stats_layout.addWidget(self.accuracy_label)
+
+        self.rhythm_label = QLabel("Rhythm: --")
+        self.rhythm_label.setStyleSheet(build_stat_label_style(theme.chart_primary))
+        self.rhythm_label.setToolTip(
+            "Live typing rhythm consistency and cadence state (Steady, Bursting, Hesitating)"
+        )
+        stats_layout.addWidget(self.rhythm_label)
 
         self.progress_label = QLabel("Progress: 0%")
         self.progress_label.setStyleSheet(build_stat_label_style(theme.progress_bg))
@@ -617,6 +632,10 @@ class TypingPracticeApp(QMainWindow):
         self._adaptive_drills = self.progress_store.get_setting(
             "adaptive_drills", DEFAULT_ADAPTIVE_DRILLS
         )
+        self._realtime_feedback = bool(
+            self.progress_store.get_setting("realtime_feedback", DEFAULT_REALTIME_FEEDBACK)
+        )
+        self._refresh_realtime_feedback_indicators()
 
         # Load and apply theme
         theme_name = self.progress_store.get_setting("theme", DEFAULT_THEME)
@@ -637,6 +656,7 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
+        self._refresh_realtime_feedback_indicators()
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -660,6 +680,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.wpm_label.setStyleSheet(build_stat_label_style(theme.wpm_bg))
         self.accuracy_label.setStyleSheet(build_stat_label_style(theme.accuracy_bg))
+        self.rhythm_label.setStyleSheet(build_stat_label_style(theme.chart_primary))
         self.progress_label.setStyleSheet(build_stat_label_style(theme.progress_bg))
         self.error_label.setStyleSheet(build_stat_label_style(theme.error_bg))
         self.backspace_label.setStyleSheet(build_stat_label_style(theme.backspace_bg))
@@ -670,6 +691,7 @@ class TypingPracticeApp(QMainWindow):
         self.regenerate_button.setStyleSheet(build_accent_button_style(theme.progress_bg))
         self.reset_button.setStyleSheet(build_plain_button_style(theme))
         self._style_strict_mode_indicator()
+        self._style_mistake_callout_label()
 
         formats = make_input_formats(theme)
         self.input_default_format = formats.default
@@ -754,6 +776,15 @@ class TypingPracticeApp(QMainWindow):
         """Apply readable theme colors to the strict-mode status badge."""
         background = self.current_theme.error_bg
         self.strict_mode_indicator.setStyleSheet(
+            f"color: {contrasting_text_color(background)}; font-weight: bold; "
+            f"font-size: 12px; background-color: {background}; "
+            "padding: 4px 8px; border-radius: 4px;"
+        )
+
+    def _style_mistake_callout_label(self) -> None:
+        """Apply readable theme colors to the live mistake callout badge."""
+        background = self.current_theme.error_bg
+        self.mistake_callout_label.setStyleSheet(
             f"color: {contrasting_text_color(background)}; font-weight: bold; "
             f"font-size: 12px; background-color: {background}; "
             "padding: 4px 8px; border-radius: 4px;"
@@ -1228,12 +1259,24 @@ class TypingPracticeApp(QMainWindow):
 
     def _update_keyboard_highlight(self) -> None:
         """Update the keyboard to highlight the next key to press."""
-        if not self.current_target_text:
+        if not self.current_target_text or self._round_complete:
             self.keyboard_widget.clear_highlights()
             return
 
         typed_len = len(self.session.typed_text)
         target_len = len(self.current_target_text)
+
+        mistake = self.controller.feedback_tracker.last_mistake
+        if (
+            self._realtime_feedback
+            and mistake is not None
+            and mistake.expected_key
+            and 0 < typed_len <= target_len
+        ):
+            self.keyboard_widget.set_next_key(
+                mistake.expected_key, error=True, wrong_key=mistake.typed_key
+            )
+            return
 
         if typed_len >= target_len:
             self.keyboard_widget.clear_highlights()
@@ -1246,8 +1289,9 @@ class TypingPracticeApp(QMainWindow):
             last_typed = self.session.typed_text[-1]
             expected = self.current_target_text[typed_len - 1]
             if last_typed != expected:
-                # Show error - highlight what should have been pressed
-                self.keyboard_widget.set_next_key(expected, error=True)
+                # Show error - highlight what should have been pressed (and wrong key when real-time feedback is on)
+                wrong_key = last_typed if self._realtime_feedback else ""
+                self.keyboard_widget.set_next_key(expected, error=True, wrong_key=wrong_key)
                 return
 
         self.keyboard_widget.set_next_key(next_char, error=False)
@@ -1273,8 +1317,12 @@ class TypingPracticeApp(QMainWindow):
             self._last_target_html = ""
             self.target_text.setText("")
 
-        self._update_wpm_label(typed)
+        wpm = self._calculate_wpm(typed)
+        self._update_wpm_label(typed, wpm=wpm)
         self._update_accuracy_label(typed)
+        self._update_rhythm_label()
+        self._update_best_wpm_label(current_wpm=wpm)
+        self._update_mistake_callout()
 
         extra_errors = max(len(typed) - len(target), 0)
         self._update_error_label(mismatches + extra_errors)
@@ -1411,9 +1459,52 @@ class TypingPracticeApp(QMainWindow):
             self.typing_input.setTextCursor(restored_cursor)
             self.typing_input.blockSignals(False)
 
-    def _update_wpm_label(self, typed: str) -> None:
+    def _refresh_realtime_feedback_indicators(self) -> None:
+        """Refresh or clear all real-time feedback labels and keyboard highlights."""
+        typed = self.session.typed_text
         wpm = self._calculate_wpm(typed)
+        self._update_wpm_label(typed, wpm=wpm)
+        self._update_rhythm_label()
+        self._update_best_wpm_label(current_wpm=wpm)
+        self._update_mistake_callout()
+        self._update_keyboard_highlight()
+
+    def _update_wpm_label(self, typed: str, wpm: Optional[int] = None) -> None:
+        if wpm is None:
+            wpm = self._calculate_wpm(typed)
+        if self._realtime_feedback and self.session.is_active:
+            speed = self.controller.feedback_tracker.speed_snapshot(wpm)
+            if speed.rolling_wpm is not None:
+                self.wpm_label.setText(f"WPM: {wpm} (Burst: {speed.rolling_wpm})")
+                return
         self.wpm_label.setText(f"WPM: {wpm}")
+
+    def _update_rhythm_label(self) -> None:
+        self.rhythm_label.setVisible(self._realtime_feedback)
+        if not self._realtime_feedback:
+            self.rhythm_label.setText("Rhythm: --")
+            return
+        snapshot = self.controller.feedback_tracker.rhythm_snapshot()
+        if snapshot.consistency_percent is None:
+            self.rhythm_label.setText("Rhythm: --")
+        else:
+            self.rhythm_label.setText(
+                f"Rhythm: {snapshot.consistency_percent}% ({snapshot.state})"
+            )
+
+    def _update_mistake_callout(self) -> None:
+        mistake = self.controller.feedback_tracker.last_mistake
+        if (
+            not self._realtime_feedback
+            or mistake is None
+            or self._round_complete
+            or not self.session.typed_text
+        ):
+            self.mistake_callout_label.setVisible(False)
+            self.mistake_callout_label.setText("")
+            return
+        self.mistake_callout_label.setText(f"⚠️ {mistake.message}")
+        self.mistake_callout_label.setVisible(True)
 
     def _calculate_wpm(self, typed: str, elapsed: Optional[float] = None) -> int:
         if elapsed is None:
@@ -1567,6 +1658,7 @@ class TypingPracticeApp(QMainWindow):
 
         self.typing_input.setReadOnly(True)
         self.keyboard_widget.clear_highlights()
+        self._update_mistake_callout()
 
         if timed_out:
             completion_msg = (
@@ -1682,12 +1774,26 @@ class TypingPracticeApp(QMainWindow):
 
         self._update_description("🏆 Congratulations! You've completed all lessons!", mode="complete")
 
-    def _update_best_wpm_label(self) -> None:
+    def _update_best_wpm_label(self, current_wpm: Optional[int] = None) -> None:
         if self.mode != "lesson":
             self.best_wpm_label.setText("Best: --")
             return
         lesson_key = str(self.current_lesson_index)
         best = self.best_wpm.get(lesson_key)
+        if (
+            self._realtime_feedback
+            and self.session.is_active
+            and not self._round_complete
+            and best > 0
+        ):
+            if current_wpm is None:
+                current_wpm = self._calculate_wpm(self.session.typed_text)
+            speed = self.controller.feedback_tracker.speed_snapshot(current_wpm, best)
+            if speed.best_delta is not None:
+                arrow = "▲" if speed.best_delta >= 0 else "▼"
+                sign = "+" if speed.best_delta >= 0 else ""
+                self.best_wpm_label.setText(f"Best: {best} ({arrow} {sign}{speed.best_delta})")
+                return
         self.best_wpm_label.setText(f"Best: {best}")
 
     def _save_progress(self) -> None:

@@ -49,6 +49,7 @@ class KeyboardWidget(QWidget):
         super().__init__(parent)
         self.next_key: str = ""
         self.error_key: str = ""  # Key that should have been pressed on error
+        self.wrong_key: str = ""  # Key that was mistakenly pressed on error
         self.theme: Theme = LIGHT_THEME
         self._key_rects: dict[str, QRect] = {}
         self._layout_width = 0
@@ -62,6 +63,8 @@ class KeyboardWidget(QWidget):
             keys.add(self.next_key.lower())
         if self.error_key:
             keys.add(self.error_key.lower())
+        if self.wrong_key:
+            keys.add(self.wrong_key.lower())
         return keys
 
     def _invalidate_layout_cache(self) -> None:
@@ -121,15 +124,17 @@ class KeyboardWidget(QWidget):
         for rect in self._dirty_rects_for_keys(keys):
             self.update(rect)
 
-    def set_next_key(self, key: str, error: bool = False) -> None:
-        """Set the next key to highlight. If error=True, highlight as error."""
+    def set_next_key(self, key: str, error: bool = False, wrong_key: str = "") -> None:
+        """Set the next key to highlight. If error=True, highlight expected key and optional wrong_key."""
         previous_keys = self._active_highlight_keys()
         if error:
             self.error_key = key
+            self.wrong_key = wrong_key if wrong_key.lower() != key.lower() else ""
             self.next_key = ""
         else:
             self.next_key = key
             self.error_key = ""
+            self.wrong_key = ""
         new_keys = self._active_highlight_keys()
         self._repaint_keys(previous_keys | new_keys)
 
@@ -138,6 +143,7 @@ class KeyboardWidget(QWidget):
         previous_keys = self._active_highlight_keys()
         self.next_key = ""
         self.error_key = ""
+        self.wrong_key = ""
         self._repaint_keys(previous_keys)
 
     def set_theme(self, theme: Theme) -> None:
@@ -183,13 +189,28 @@ class KeyboardWidget(QWidget):
 
                 is_next = self.next_key.lower() == key_char.lower() if self.next_key else False
                 is_error = self.error_key.lower() == key_char.lower() if self.error_key else False
-                
+                is_wrong = self.wrong_key.lower() == key_char.lower() if self.wrong_key else False
+                border_pen = QPen(key_border, 1)
+
                 if is_next:
                     fill_color = highlight_color
                     current_text_color = QColor(
                         contrasting_text_color(self.theme.keyboard_highlight)
                     )
                 elif is_error:
+                    if self.wrong_key:
+                        # Dual-key mode: expected key shown in highlight color with error-colored border
+                        fill_color = highlight_color
+                        current_text_color = QColor(
+                            contrasting_text_color(self.theme.keyboard_highlight)
+                        )
+                        border_pen = QPen(error_color, 2)
+                    else:
+                        fill_color = error_color
+                        current_text_color = QColor(
+                            contrasting_text_color(self.theme.keyboard_error)
+                        )
+                elif is_wrong:
                     fill_color = error_color
                     current_text_color = QColor(
                         contrasting_text_color(self.theme.keyboard_error)
@@ -215,7 +236,7 @@ class KeyboardWidget(QWidget):
                 painter.fillPath(path, fill_color)
                 
                 # Draw border
-                painter.setPen(QPen(key_border, 1))
+                painter.setPen(border_pen)
                 painter.drawPath(path)
                 
                 # Draw label
