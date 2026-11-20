@@ -1,6 +1,7 @@
 """Tests for snippet lessons: infrastructure, index stability and snippet quality."""
 
 import ast
+import re
 
 import pytest
 
@@ -15,7 +16,22 @@ CORE_TEXT_COUNT = 62
 # Languages whose snippet content is complete; each content task extends this.
 COMPLETED_LANGUAGES: list[str] = [
     "TypeScript", "JavaScript", "Python", "Rust", "Go", "SQL", "HTML/CSS", "C++",
+    "PowerShell",
 ]
+
+# Every Verb-Noun cmdlet used by the PowerShell and Active Directory snippets
+# must be listed here. Names were checked against Microsoft Learn; Test-NetConnection,
+# Get-CimInstance, Where-Object, Export-Csv (-Path/-NoTypeInformation/-Encoding),
+# Get-ChildItem, Sort-Object and Invoke-Command (-ComputerName/-ScriptBlock) had their
+# parameters read from the docs, the rest are core cmdlets.
+KNOWN_CMDLETS = {
+    "Get-ChildItem", "Where-Object", "Sort-Object", "Select-Object", "Get-Process",
+    "Write-Host", "Get-Service", "Start-Service", "Write-Output", "Get-CimInstance",
+    "Export-Csv", "Get-Content", "Write-Warning", "Test-NetConnection",
+    "Invoke-Command", "Format-Table", "ForEach-Object",
+}
+CMDLET_TOKEN = re.compile(r"\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b")
+DEFINED_FUNCTION = re.compile(r"function\s+([A-Za-z]+-[A-Za-z]+)")
 
 
 def test_core_lessons_unchanged_and_first():
@@ -110,3 +126,14 @@ def test_language_covers_all_tiers_with_three_snippets(language):
     for tier in DIFFICULTIES:
         count = sum(1 for s in SNIPPETS if s.language == language and s.difficulty == tier)
         assert count >= 3, f"{language} {tier} has {count} snippets"
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [s for s in SNIPPETS if s.language in ("PowerShell", "Active Directory")],
+    ids=snippet_id,
+)
+def test_powershell_and_ad_cmdlets_are_known(snippet):
+    defined = set(DEFINED_FUNCTION.findall(snippet.text))
+    used = set(CMDLET_TOKEN.findall(snippet.text)) - defined
+    assert used <= KNOWN_CMDLETS, f"unverified cmdlets: {sorted(used - KNOWN_CMDLETS)}"
