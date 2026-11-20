@@ -12,9 +12,14 @@ import io
 import math
 import random
 import struct
+import tempfile
 import wave
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from PyQt6.QtCore import QObject, QUrl
+from PyQt6.QtMultimedia import QSoundEffect
 
 from core.transitions import TextChange
 
@@ -194,3 +199,103 @@ def classify_edit(changes: Sequence[TextChange], target_text: str) -> List[str]:
         else:
             kinds.append("letter")
     return kinds
+
+
+class KeySoundPlayer(QObject):
+    """Plays key sounds from preloaded `QSoundEffect`s without ever raising.
+
+    One effect is preloaded per (kind, variant) plus one for errors, so a
+    keystroke never calls `setSource`. `play` rotates through a kind's variants,
+    so adjacent keystrokes use different effects and do not cut each other off.
+    Any setup or playback failure disables sounds quietly: typing must never
+    be affected by audio problems.
+    """
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._profile = "off"
+        self._volume = 60
+        self._effects: Dict[str, List[QSoundEffect]] = {}
+        self._next: Dict[str, int] = {}
+        self._dir: Optional[tempfile.TemporaryDirectory] = None
+
+    @property
+    def enabled(self) -> bool:
+        return self._profile != "off" and bool(self._effects)
+
+    def configure(self, profile: str, volume: int) -> None:
+        """Select a profile ("off" or one of PROFILES) and a 0-100 volume."""
+        volume = max(0, min(100, int(volume)))
+        try:
+            if profile == self._profile and self._effects:
+                self._volume = volume  # same profile: just retune the volume
+                for effects in self._effects.values():
+                    for effect in effects:
+                        effect.setVolume(volume / 100)
+                return
+            self._teardown()
+            self._volume = volume
+            if profile in PROFILES:
+                self._build(profile)
+                self._profile = profile
+        except Exception:
+            self._teardown()
+
+    def play(self, kind: str) -> None:
+        """Play the next variant of `kind`; silently does nothing if unavailable."""
+        try:
+            effects = self._effects.get(kind)
+            if not effects or self._profile == "off":
+                return
+            index = self._next[kind]
+            self._next[kind] = (index + 1) % len(effects)
+            effects[index].play()
+        except Exception:
+            pass
+
+    def shutdown(self) -> None:
+        """Stop everything and delete the generated sound files."""
+        self._teardown()
+
+    def _build(self, profile: str) -> None:
+        self._dir = tempfile.TemporaryDirectory(
+            prefix="py-typing-keysounds-", ignore_cleanup_errors=True,
+        )
+        root = Path(self._dir.name)
+
+        def load(name: str, data: bytes) -> QSoundEffect:
+            path = root / f"{name}.wav"
+            path.write_bytes(data)
+            effect = QSoundEffect(self)
+            effect.setSource(QUrl.fromLocalFile(str(path)))
+            effect.setVolume(self._volume / 100)
+            return effect
+
+        effects = {
+            kind: [
+                load(f"{kind}{variant}", synthesize(profile, kind, variant))
+                for variant in range(VARIANTS_PER_KIND)
+            ]
+            for kind in KINDS
+        }
+        effects[ERROR_KIND] = [load("error", synthesize_error())]
+        self._effects = effects
+        self._next = {kind: 0 for kind in effects}
+
+    def _teardown(self) -> None:
+        for effects in self._effects.values():
+            for effect in effects:
+                try:
+                    effect.stop()
+                    effect.deleteLater()
+                except Exception:
+                    pass
+        self._effects = {}
+        self._next = {}
+        self._profile = "off"
+        if self._dir is not None:
+            try:
+                self._dir.cleanup()
+            except Exception:
+                pass
+            self._dir = None

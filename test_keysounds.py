@@ -4,14 +4,17 @@ import io
 import struct
 import time
 import wave
+from pathlib import Path
 
 import pytest
 
+import core.keysounds as keysounds
 from core.keysounds import (
     KINDS,
     PROFILES,
     SAMPLE_RATE,
     VARIANTS_PER_KIND,
+    KeySoundPlayer,
     classify_edit,
     synthesize,
     synthesize_error,
@@ -100,3 +103,109 @@ def test_profile_synthesis_budget():
 )
 def test_classify_edit(changes, target, expected):
     assert classify_edit(changes, target) == expected
+
+
+# --- KeySoundPlayer (QSoundEffect replaced by a recording fake) -------------------
+
+
+class FakeEffect:
+    instances: list = []
+
+    def __init__(self, parent=None):
+        self.source = None
+        self.volume = None
+        self.plays = 0
+        self.stopped = False
+        FakeEffect.instances.append(self)
+
+    def setSource(self, url):
+        self.source = url
+
+    def setVolume(self, volume):
+        self.volume = volume
+
+    def play(self):
+        self.plays += 1
+
+    def stop(self):
+        self.stopped = True
+
+
+@pytest.fixture
+def fake_effects(monkeypatch):
+    FakeEffect.instances = []
+    monkeypatch.setattr(keysounds, "QSoundEffect", FakeEffect)
+    return FakeEffect
+
+
+def test_player_is_off_by_default():
+    player = KeySoundPlayer()
+    assert player.enabled is False
+    player.play("letter")  # must not raise
+
+
+def test_configure_builds_effects_and_rotates_variants(fake_effects):
+    player = KeySoundPlayer()
+    player.configure("clicky", 50)
+    assert player.enabled is True
+    assert len(fake_effects.instances) == 13  # 3 kinds x 4 variants + error
+    assert all(effect.volume == 0.5 for effect in fake_effects.instances)
+
+    for _ in range(4):
+        player.play("letter")
+    plays = [effect.plays for effect in fake_effects.instances]
+    assert sum(plays) == 4 and max(plays) == 1  # four distinct effects
+    player.play("letter")
+    plays = [effect.plays for effect in fake_effects.instances]
+    assert sum(plays) == 5 and max(plays) == 2  # the fifth replays the first
+
+
+def test_error_kind_plays_the_error_effect(fake_effects):
+    player = KeySoundPlayer()
+    player.configure("tactile", 60)
+    player.play("error")
+    assert fake_effects.instances[-1].plays == 1
+
+
+def test_volume_change_does_not_resynthesize(fake_effects, monkeypatch):
+    calls = []
+    real = keysounds.synthesize
+    monkeypatch.setattr(keysounds, "synthesize", lambda *a: calls.append(a) or real(*a))
+    player = KeySoundPlayer()
+    player.configure("clicky", 50)
+    built = len(calls)
+    player.configure("clicky", 80)
+    assert len(calls) == built
+    assert all(effect.volume == 0.8 for effect in fake_effects.instances)
+
+
+def test_configure_off_disables(fake_effects):
+    player = KeySoundPlayer()
+    player.configure("clicky", 50)
+    player.configure("off", 50)
+    assert player.enabled is False
+    assert all(effect.stopped for effect in fake_effects.instances)
+    player.play("letter")
+    assert sum(effect.plays for effect in fake_effects.instances) == 0
+
+
+def test_setup_failure_disables_silently(fake_effects, monkeypatch):
+    class Broken(FakeEffect):
+        def setSource(self, url):
+            raise RuntimeError("no audio device")
+
+    monkeypatch.setattr(keysounds, "QSoundEffect", Broken)
+    player = KeySoundPlayer()
+    player.configure("clicky", 50)  # must not raise
+    assert player.enabled is False
+    player.play("letter")  # must not raise
+
+
+def test_shutdown_removes_temp_dir(fake_effects):
+    player = KeySoundPlayer()
+    player.configure("linear", 50)
+    folder = Path(fake_effects.instances[0].source.toLocalFile()).parent
+    assert folder.exists()
+    player.shutdown()
+    assert not folder.exists()
+    assert player.enabled is False
