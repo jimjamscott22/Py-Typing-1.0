@@ -12,9 +12,11 @@ from core.keysounds import (
     PROFILES,
     SAMPLE_RATE,
     VARIANTS_PER_KIND,
+    classify_edit,
     synthesize,
     synthesize_error,
 )
+from core.transitions import TextChange
 
 FULL_SCALE = 32767
 
@@ -78,3 +80,23 @@ def test_profile_synthesis_budget():
         for variant in range(VARIANTS_PER_KIND):
             synthesize("clicky", kind, variant)
     assert time.perf_counter() - start < 1.0
+
+
+@pytest.mark.parametrize(
+    ("changes", "target", "expected"),
+    [
+        ([TextChange(0, 0, "a")], "ab", ["letter"]),
+        ([TextChange(1, 0, " ")], "a b", ["space"]),
+        ([TextChange(1, 0, "\n")], "a\nb", ["enter"]),
+        ([TextChange(0, 0, "x")], "ab", ["error"]),
+        ([TextChange(0, 1, "")], "ab", ["letter"]),  # backspace
+        ([TextChange(2, 0, "z")], "ab", []),  # past the end of the target
+        ([TextChange(0, 0, "ab")], "ab", []),  # multi-character (paste / IME)
+        ([], "ab", []),
+        ([TextChange(0, 1, "a")], "ab", ["letter"]),  # typing over a selection
+    ],
+    ids=["letter", "space", "enter", "error", "backspace", "past-end", "multichar",
+         "no-changes", "replace-selection"],
+)
+def test_classify_edit(changes, target, expected):
+    assert classify_edit(changes, target) == expected

@@ -14,11 +14,14 @@ import random
 import struct
 import wave
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
+
+from core.transitions import TextChange
 
 SAMPLE_RATE = 44100
 PROFILES = ("clicky", "tactile", "linear")
 KINDS = ("letter", "space", "enter")
+ERROR_KIND = "error"
 VARIANTS_PER_KIND = 4
 
 _PEAK = 0.9  # results are scaled down to this fraction of full scale if louder
@@ -161,3 +164,33 @@ def synthesize_error() -> bytes:
         state += alpha * (value - state)
         filtered.append(state)
     return _to_wav([filtered])
+
+
+def classify_edit(changes: Sequence[TextChange], target_text: str) -> List[str]:
+    """Map one input edit to the key sounds it should trigger (at most one per change).
+
+    A correct character gives its kind (letter, space or enter), a wrong one
+    gives the error sound, and a backspace gives a letter click. Nothing plays
+    for multi-character changes (paste/IME) or characters past the end of the
+    target.
+    """
+    kinds: List[str] = []
+    for change in changes:
+        if len(change.inserted) > 1:
+            continue
+        if not change.inserted:
+            if change.removed > 0:
+                kinds.append("letter")
+            continue
+        if change.position >= len(target_text):
+            continue
+        expected = target_text[change.position]
+        if change.inserted != expected:
+            kinds.append(ERROR_KIND)
+        elif expected == " ":
+            kinds.append("space")
+        elif expected == "\n":
+            kinds.append("enter")
+        else:
+            kinds.append("letter")
+    return kinds
