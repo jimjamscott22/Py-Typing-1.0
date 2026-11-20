@@ -6,7 +6,9 @@ Order does not matter: `core.snippets` groups by language and tier.
 """
 
 from core.models import Snippet
-from core.snippet_data import cpp, go, javascript, python, rust, typescript
+from core.snippet_data import (
+    cpp, go, html_css, javascript, python, rust, sql, typescript,
+)
 
 ALL: tuple[Snippet, ...] = (
     *typescript.SNIPPETS,
@@ -14,5 +16,7 @@ ALL: tuple[Snippet, ...] = (
     *python.SNIPPETS,
     *rust.SNIPPETS,
     *go.SNIPPETS,
+    *sql.SNIPPETS,
+    *html_css.SNIPPETS,
     *cpp.SNIPPETS,
 )
