@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Set
 
 from core.transitions import TransitionSample
 
@@ -23,6 +23,9 @@ class TypingSession:
     key_errors: Dict[str, int] = field(default_factory=dict)  # Track errors per key
     key_attempts: Dict[str, int] = field(default_factory=dict)  # Track attempts per key
     transition_samples: List[TransitionSample] = field(default_factory=list)
+    # Typed-text indexes filled in automatically (indentation after Enter);
+    # excluded from every statistic because the user never pressed those keys.
+    auto_filled: Set[int] = field(default_factory=set)
 
     def reset(self) -> None:
         self.typed_text = ""
@@ -33,6 +36,39 @@ class TypingSession:
         self.key_errors = {}
         self.key_attempts = {}
         self.transition_samples = []
+        self.auto_filled = set()
+
+    def register_auto_fill(self, start: int, length: int) -> None:
+        """Mark `length` characters starting at `start` as auto-filled."""
+        self.auto_filled.update(range(start, start + length))
+
+    def is_auto_filled(self, index: int) -> bool:
+        return index in self.auto_filled
+
+    @property
+    def auto_filled_count(self) -> int:
+        return len(self.auto_filled)
+
+    def keystroke_length(self, typed_len: int) -> int:
+        """Characters of `typed_len` the user actually typed."""
+        return typed_len - sum(1 for pos in self.auto_filled if pos < typed_len)
+
+    def prune_auto_fill(self, typed_len: int) -> None:
+        """Forget auto-filled positions that no longer exist in the typed text."""
+        self.auto_filled = {pos for pos in self.auto_filled if pos < typed_len}
+
+    def note_edit(self, position: int, removed: int) -> None:
+        """Drop auto-fill tracking when an edit shifts positions it recorded.
+
+        Tail edits keep it (pruning handles tail deletions); an edit inside the
+        text at or before the last auto-filled position clears it conservatively.
+        """
+        if not self.auto_filled:
+            return
+        if position + removed >= len(self.typed_text):
+            return
+        if position <= max(self.auto_filled):
+            self.auto_filled.clear()
 
     def begin(self) -> None:
         self.is_active = True
