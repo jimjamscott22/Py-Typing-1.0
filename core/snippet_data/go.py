@@ -34,10 +34,7 @@ type Account struct {
     Owner   string
     Balance float64
 }
-
-func (a *Account) Deposit(amount float64) {
-    a.Balance += amount
-}
+func (a *Account) Deposit(n float64) { a.Balance += n }
 """)),
     Snippet(_L, "Mid", "Wrapping errors", code(r"""
 func load(path string) ([]byte, error) {

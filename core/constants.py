@@ -8,7 +8,7 @@ SPACING_XL = 24
 # Typing frame: minimum height (px) and how many lines of a multi-line target
 # (code snippets) it may grow to show.
 TERMINAL_MIN_HEIGHT = 150
-TERMINAL_MAX_LINES = 8  # measured: 8 lines needs a 1002 px window at 16 pt; 12 needs 1190
+TERMINAL_MAX_LINES = 5  # the frame grows to show this many lines, then the input scrolls
 
 # Default settings values
 DEFAULT_BACKSPACE_PENALTY = 3  # WPM penalty per backspace

@@ -15,7 +15,7 @@ Get-ChildItem -Path C:\Logs -Recurse -File |
     Snippet(_L, "Junior", "Busy processes", code(r"""
 $procs = Get-Process | Where-Object CPU -gt 100
 foreach ($p in $procs) {
-    Write-Host "$($p.Name) used $([math]::Round($p.CPU)) CPU seconds"
+    Write-Host "$($p.Name): $([math]::Round($p.CPU)) s"
 }
 """)),
     Snippet(_L, "Junior", "Restart a stopped service", code(r"""
@@ -27,11 +27,9 @@ Write-Output "Spooler is $((Get-Service Spooler).Status)"
 """)),
     Snippet(_L, "Mid", "Function with validated parameters", code(r"""
 function Get-DiskReport {
-    param(
-        [Parameter(Mandatory)] [string]$ComputerName,
-        [ValidateSet('C:', 'D:')] [string]$Drive = 'C:'
-    )
-    Get-CimInstance Win32_LogicalDisk -ComputerName $ComputerName |
+    param([Parameter(Mandatory)] [string]$Pc,
+          [ValidateSet('C:', 'D:')] [string]$Drive = 'C:')
+    Get-CimInstance Win32_LogicalDisk -ComputerName $Pc |
         Where-Object DeviceID -eq $Drive
 }
 """)),
@@ -41,23 +39,24 @@ $params = @{
     NoTypeInformation = $true
     Encoding          = 'UTF8'
 }
-Get-Service | Select-Object Name, Status | Export-Csv @params
+Get-Service | Select-Object Name, Status |
+    Export-Csv @params
 """)),
-    Snippet(_L, "Mid", "Try and catch a missing file", code(r"""
+    Snippet(_L, "Mid", "Try and catch a read error", code(r"""
 try {
     $content = Get-Content -Path $path -ErrorAction Stop
     Write-Output "Read $($content.Count) lines"
 }
-catch [System.IO.FileNotFoundException] {
-    Write-Warning "Missing file: $path"
+catch {
+    Write-Warning "Read failed: $($_.Exception.Message)"
 }
 """)),
     Snippet(_L, "Senior", "Advanced function with pipeline input", code(r"""
 function Test-Port {
     [CmdletBinding()]
-    param([Parameter(ValueFromPipeline)] [string]$ComputerName)
+    param([Parameter(ValueFromPipeline)] [string]$Name)
     process {
-        Test-NetConnection -ComputerName $ComputerName -Port 443
+        Test-NetConnection -ComputerName $Name -Port 443
     }
 }
 """)),
@@ -70,8 +69,8 @@ Invoke-Command -ComputerName $servers -ScriptBlock {
 """)),
     Snippet(_L, "Senior", "Regex captures into objects", code(r"""
 Get-Content .\access.log | ForEach-Object {
-    if ($_ -match '(?<ip>\d+\.\d+\.\d+\.\d+) .* (?<code>\d{3}) ') {
-        [pscustomobject]@{ IP = $Matches.ip; Code = $Matches.code }
+    if ($_ -match '(?<ip>[\d.]+) .* (?<code>\d{3}) ') {
+        [pscustomobject]$Matches
     }
 }
 """)),

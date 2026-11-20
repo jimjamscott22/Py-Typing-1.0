@@ -101,7 +101,7 @@ class SessionController:
         """Record per-character attempt/error stats and transition timings."""
         timestamp = self._transition_clock()
         for change in changes:
-            self.session.note_edit(change.position, change.removed)
+            self.session.note_edit(change.position, change.removed, len(change.inserted))
             for offset, char in enumerate(change.inserted):
                 index = change.position + offset
                 if index < len(target_text):

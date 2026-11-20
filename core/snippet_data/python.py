@@ -13,7 +13,7 @@ print(f"Even squares: {evens}")
 """)),
     Snippet(_L, "Junior", "Read non-empty lines", code(r"""
 with open("notes.txt", encoding="utf-8") as handle:
-    lines = [line.strip() for line in handle if line.strip()]
+    lines = [ln.strip() for ln in handle if ln.strip()]
 print(f"{len(lines)} non-empty lines")
 """)),
     Snippet(_L, "Junior", "Count words with a dict", code(r"""
@@ -37,23 +37,22 @@ def read_chunks(path, size=1024):
         while chunk := handle.read(size):
             yield chunk
 """)),
-    Snippet(_L, "Mid", "Timing decorator", code(r"""
-def timed(fn):
+    Snippet(_L, "Mid", "Call-counting decorator", code(r"""
+def counted(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = fn(*args, **kwargs)
-        print(f"{fn.__name__}: {time.perf_counter() - start:.3f}s")
-        return result
+        wrapper.calls += 1
+        return fn(*args, **kwargs)
+    wrapper.calls = 0
     return wrapper
 """)),
     Snippet(_L, "Senior", "Gather with a timeout", code(r"""
 async def fetch_all(urls):
     async with asyncio.timeout(10):
-        results = await asyncio.gather(
-            *(fetch(url) for url in urls), return_exceptions=True
+        res = await asyncio.gather(
+            *map(fetch, urls), return_exceptions=True
         )
-    return [r for r in results if not isinstance(r, Exception)]
+    return [r for r in res if not isinstance(r, Exception)]
 """)),
     Snippet(_L, "Senior", "Protocol with a generic function", code(r"""
 from typing import Protocol
@@ -67,7 +66,7 @@ def largest[T: Comparable](items: list[T]) -> T:
     Snippet(_L, "Senior", "Regex named groups", code(r"""
 import re
 
-RE = re.compile(r"(?P<ip>[\d.]+) \[(?P<ts>[^\]]+)\] (?P<path>\S+)")
+RE = re.compile(r"(?P<ip>[\d.]+) \[(?P<ts>[^\]]+)\]")
 
 def parse(line: str) -> dict[str, str] | None:
     match = RE.search(line)

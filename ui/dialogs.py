@@ -50,6 +50,7 @@ from core.analytics import (
     normalize_stats_for_display,
 )
 from core.achievements import ACHIEVEMENTS, build_achievement_progress
+from core.lessons import curriculum_text_counts
 from core.challenges import evaluate_challenge_progress, get_daily_challenge
 from core.goals import evaluate_daily_goal, evaluate_weekly_goal
 from core.transitions import (
@@ -957,7 +958,7 @@ class AchievementsDialog(QDialog):
             self.progress_store.get_session_history(),
             self.progress_store.get_unlocked_achievements(),
             self.progress_store.get_completed_lesson_texts(),
-            [len(lesson.texts) for lesson in self.lessons],
+            curriculum_text_counts(self.lessons),
         )
         unlocked_count = sum(1 for status in statuses if status.earned)
 

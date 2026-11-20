@@ -8,7 +8,9 @@ import pytest
 import core.lessons as lessons_module
 from core.lessons import build_lessons, completion_message, curriculum_text_counts
 from core.models import Lesson, Snippet
-from core.snippets import DIFFICULTIES, LANGUAGES, SNIPPETS, build_snippet_lessons
+from core.snippets import (
+    DIFFICULTIES, LANGUAGES, MAX_COLUMNS, MAX_LINES, SNIPPETS, build_snippet_lessons,
+)
 
 CORE_LESSON_COUNT = 18
 CORE_TEXT_COUNT = 62
@@ -29,7 +31,7 @@ COMPLETED_LANGUAGES: list[str] = [
 # The rest are core or well-known ActiveDirectory cmdlets.
 KNOWN_CMDLETS = {
     "Get-ADUser", "Get-ADGroupMember", "Get-ADComputer", "Search-ADAccount",
-    "Unlock-ADAccount", "New-ADUser", "Add-ADGroupMember", "Get-ADDomainController",
+    "Unlock-ADAccount", "New-ADUser", "Enable-ADAccount", "Get-ADDomainController",
     "Get-ADReplicationFailure", "Get-ADDefaultDomainPasswordPolicy", "Get-GPO",
     "Get-Date", "Import-Csv",
     "Get-ChildItem", "Where-Object", "Sort-Object", "Select-Object", "Get-Process",
@@ -109,9 +111,9 @@ def test_snippet_well_formed(snippet):
     assert "\t" not in text and "\r" not in text
     assert all(line == line.rstrip() for line in lines), "trailing whitespace"
     assert not text.endswith("\n")
-    assert 3 <= len(lines) <= 8
+    assert 3 <= len(lines) <= MAX_LINES
     assert len(text) <= 450
-    assert max(len(line) for line in lines) <= 72
+    assert max(len(line) for line in lines) <= MAX_COLUMNS
 
 
 def test_no_duplicate_titles_or_texts():

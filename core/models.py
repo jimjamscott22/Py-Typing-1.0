@@ -69,18 +69,21 @@ class TypingSession:
         """Forget auto-filled positions that no longer exist in the typed text."""
         self.auto_filled = {pos for pos in self.auto_filled if pos < typed_len}
 
-    def note_edit(self, position: int, removed: int) -> None:
-        """Drop auto-fill tracking when an edit shifts positions it recorded.
+    def note_edit(self, position: int, removed: int, inserted_len: int = 0) -> None:
+        """Keep auto-fill positions pointing at the same characters after an edit.
 
-        Tail edits keep it (pruning handles tail deletions); an edit inside the
-        text at or before the last auto-filled position clears it conservatively.
+        Positions inside the removed range disappear; positions after it move by
+        the net length change. Typed replacements are never auto-filled.
         """
         if not self.auto_filled:
             return
-        if position + removed >= len(self.typed_text):
-            return
-        if position <= max(self.auto_filled):
-            self.auto_filled.clear()
+        end = position + removed
+        delta = inserted_len - removed
+        self.auto_filled = {
+            pos if pos < position else pos + delta
+            for pos in self.auto_filled
+            if pos < position or pos >= end
+        }
 
     def begin(self) -> None:
         self.is_active = True

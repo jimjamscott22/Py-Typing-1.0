@@ -14,7 +14,7 @@
 
 - No new dependencies. Sound synthesis uses stdlib `wave`/`math` only (no numpy). Package management via `uv`.
 - Existing lesson indexes never change: the 18 existing lessons stay first ("Weak Key Practice" is index 17, `texts == ["__WEAK_KEYS__"]`); snippet lessons are appended after it.
-- Snippets: 3–8 lines (revised from 12 after measuring layout in Task 3), ≤450 characters, no line >72 characters, ASCII, `\n` newlines, spaces only (no tabs, Go included), no trailing whitespace, no final newline, 3 snippets per tier, written fresh (do not copy TypeForge-R text).
+- Snippets: 3–7 lines and no line over 60 columns (revised twice from 12 lines / 72 columns after measuring the layout; see the spec's §5.6), ≤450 characters, no line >72 characters, ASCII, `\n` newlines, spaces only (no tabs, Go included), no trailing whitespace, no final newline, 3 snippets per tier, written fresh (do not copy TypeForge-R text).
 - Languages, in sidebar order: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell, Active Directory. Tiers: Junior, Mid, Senior.
 - Auto-filled indentation is never an attempt, error, transition sample, feedback event or sound, and is excluded from WPM, accuracy, recorded `text_length` and the backspace penalty.
 - The curriculum achievement target must not grow (snippet lessons contribute 0 to `lesson_text_counts`).

@@ -158,11 +158,10 @@ regex, nested delimiters, concurrency, bulk operations.
 - 10 sections: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++,
   PowerShell, Active Directory. Target 3 snippets per tier (~90 total).
 - Written fresh; ideas may follow TypeForge-R, text is not copied.
-- Each snippet is 3–8 lines (revised from 12 during implementation: at the
-  default 16 pt font the window needs 1002 px for 8 lines with the keyboard
-  shown but 1190 px for 12, taller than a 1080p screen), at most ~450 characters, and no line longer than
-  72 characters, so a round stays a round and lines do not wrap at the default
-  font size.
+- Each snippet is 3–7 lines and at most ~450 characters, and no line is longer
+  than 60 characters (revised during implementation from 3–12 lines and 72
+  columns; see §5.6 for the measurements). `core/snippets.py` holds the limits
+  (`MAX_LINES`, `MAX_COLUMNS`) and `test_snippets.py` enforces them.
 - Typeable on a US keyboard: ASCII only, `\n` newlines, **spaces for
   indentation, no tabs** (Go snippets also use spaces despite `gofmt`; noted
   in the lesson description), no trailing whitespace, no final newline.
@@ -237,11 +236,23 @@ two spaces.
 
 `terminal_frame` is capped at 150 px, which fits only 3–4 lines. For lessons
 whose target has multiple lines, the frame's height grows to fit the target's
-line count (minimum 150 px as today, capped at 8 lines' worth), and
-returns to 150 px for single-line targets. Keyboard and controls must stay on
-screen at the default window size. Lines longer than the widget wrap in both
-the target and the input; the 72-character content cap keeps that from
-happening at the default font size.
+line count (minimum 150 px as today, capped at 5 lines' worth; the input
+scrolls beyond that), and returns to 150 px for single-line targets. For
+multi-line targets the fake shell prompt beside the input is hidden to free
+about 200 px of width. Keyboard and controls must stay on screen at the
+default window size, and snippet lines must not wrap at the default font size.
+
+Measured at the default 1100x850 window and 16 pt font (an earlier draft of
+these numbers was stale and wrong): the window's minimum height with the
+keyboard shown is 850 px for 1–3 lines, 922 for 4, 955 for 5, 1002 for 6, 1049
+for 7 and 1096 for 8 when the target label and the typing frame both grow.
+With the frame capped at 5 lines a 7-line target needs about 1003 px, which
+still fits a 1080p screen once a title bar and taskbar are subtracted; 8 lines
+does not. With the prompt hidden the typing box and the target label each hold
+61 columns (the input holds only about 45 with the prompt, which is why a
+72-column cap wrapped). Hence 7 lines and 60 columns. Fonts above 16 pt still
+make a 6–7 line snippet taller than 1080p; lowering the font size or hiding
+the keyboard is the user's remedy.
 
 ## 6. Design: key sounds
 
@@ -344,8 +355,8 @@ running `uv run main.py` and tuning the profile parameters if needed.
 8. Snippet text written fresh rather than copied from TypeForge-R.
 9. Next/Space does not flow past "Weak Key Practice" into the snippets (as
    today); snippets are entered from the sidebar. End-of-list message reworded.
-10. Typing frame grows (up to 8 lines; snippets capped at 8 lines) for multi-line targets; snippet lines
-    capped at 72 characters.
+10. Typing frame grows (up to 5 lines) for multi-line targets and hides the
+    shell prompt; snippets are capped at 7 lines and 60 columns.
 11. Statistics use keystroke characters (auto-fill excluded), including the
     recorded `text_length` and achievement minimum-length checks.
 12. Auto-fill is built and proven before any snippet content; if it cannot be

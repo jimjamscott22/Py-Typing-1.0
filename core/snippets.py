@@ -22,6 +22,13 @@ LANGUAGES = (
 )
 DIFFICULTIES = ("Junior", "Mid", "Senior")
 
+# Layout budget, measured at the default 1100x850 window and 16 pt font:
+# - 7 lines needs a ~1003 px window, which still fits a 1080p screen (8 would not);
+# - with the shell prompt hidden for multi-line targets, both the typing box and
+#   the target label hold 61 columns, so 60 keeps every line from wrapping.
+MAX_LINES = 7
+MAX_COLUMNS = 60
+
 TIER_BLURBS = {
     "Junior": "clean, everyday constructs",
     "Mid": "operators, destructuring, pipelines and error handling",

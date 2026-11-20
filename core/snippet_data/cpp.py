@@ -17,7 +17,7 @@ std::cout << "sum: " << sum << '\n';
     Snippet(_L, "Junior", "Function with a default argument", code(r"""
 std::string greet(const std::string& name, int times = 1) {
     std::string out;
-    for (int i = 0; i < times; ++i) out += "Hello, " + name + "! ";
+    for (int i = 0; i < times; ++i) out += "Hi " + name;
     return out;
 }
 """)),
@@ -45,35 +45,35 @@ panels.push_back(std::move(widget));
 """)),
     Snippet(_L, "Mid", "Lambdas with algorithms", code(r"""
 std::vector<int> v{5, 2, 9, 1};
-std::sort(v.begin(), v.end(), [](int a, int b) { return a > b; });
-auto it = std::find_if(v.begin(), v.end(), [](int n) { return n < 3; });
+auto desc = [](int a, int b) { return a > b; };
+std::sort(v.begin(), v.end(), desc);
+auto small = [](int n) { return n < 3; };
+auto it = std::find_if(v.begin(), v.end(), small);
 """)),
     Snippet(_L, "Senior", "Template with a comparator", code(r"""
 template <typename T, typename Compare = std::less<T>>
-T clamp_value(T value, T low, T high, Compare cmp = Compare{}) {
-    if (cmp(value, low)) return low;
-    if (cmp(high, value)) return high;
-    return value;
+T clamp_to(T v, T lo, T hi, Compare cmp = Compare{}) {
+    if (cmp(v, lo)) return lo;
+    if (cmp(hi, v)) return hi;
+    return v;
 }
 """)),
     Snippet(_L, "Senior", "RAII file handle", code(r"""
-class FileHandle {
-public:
-    FileHandle(const char* p) : file_(std::fopen(p, "r")) {}
-    ~FileHandle() { if (file_) std::fclose(file_); }
+struct FileHandle {
+    std::FILE* f;
+    FileHandle(const char* p) : f(std::fopen(p, "r")) {}
+    ~FileHandle() { if (f) std::fclose(f); }
     FileHandle(const FileHandle&) = delete;
-private:
-    std::FILE* file_;
+    FileHandle& operator=(const FileHandle&) = delete;
 };
 """)),
     Snippet(_L, "Senior", "Move constructor", code(r"""
-class Buffer {
-public:
-    Buffer(Buffer&& other) noexcept
-        : data_(std::exchange(other.data_, nullptr)),
-          size_(other.size_) {}
-private:
-    char* data_; std::size_t size_;
+struct Buffer {
+    char* data_;
+    std::size_t size_;
+    Buffer(Buffer&& o) noexcept
+        : data_(std::exchange(o.data_, nullptr)),
+          size_(o.size_) {}
 };
 """)),
 )

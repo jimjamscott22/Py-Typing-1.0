@@ -19,7 +19,8 @@ fn describe(n: Option<i32>) -> String {
 fn main() {
     let scores = vec![72, 85, 90];
     let total: i32 = scores.iter().sum();
-    println!("Average: {}", total as f64 / scores.len() as f64);
+    let avg = total as f64 / scores.len() as f64;
+    println!("Average: {avg:.1}");
 }
 """)),
     Snippet(_L, "Junior", "Mutable string and chars", code(r"""
@@ -67,7 +68,7 @@ struct Parser<'a> {
     Snippet(_L, "Senior", "Generic trait bound", code(r"""
 use std::fmt::Display;
 
-fn print_all<T: Display, I: IntoIterator<Item = T>>(items: I) {
+fn show<T: Display>(items: impl IntoIterator<Item = T>) {
     for item in items {
         println!("{item}");
     }

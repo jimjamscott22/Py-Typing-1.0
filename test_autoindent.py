@@ -55,25 +55,46 @@ def test_prune_drops_positions_past_typed_length():
     assert session.auto_filled == {6, 7}
 
 
-def test_note_edit_clears_on_interior_edit_before_fill():
-    session = TypingSession(typed_text="x" * 10)
+def test_note_edit_shifts_positions_after_an_interior_insert():
+    session = TypingSession()
     session.register_auto_fill(6, 4)
-    session.note_edit(2, 1)
-    assert session.auto_filled == set()
+    session.note_edit(2, 0, 1)  # one character typed before the indentation
+    assert session.auto_filled == {7, 8, 9, 10}
 
 
-def test_note_edit_keeps_tail_deletion():
-    session = TypingSession(typed_text="x" * 10)
-    session.register_auto_fill(6, 4)
-    session.note_edit(8, 2)
+def test_note_edit_shifts_positions_back_after_an_interior_delete():
+    session = TypingSession()
+    session.register_auto_fill(7, 4)
+    session.note_edit(0, 1, 0)  # one character deleted before the indentation
     assert session.auto_filled == {6, 7, 8, 9}
 
 
-def test_note_edit_keeps_edit_after_fill():
-    session = TypingSession(typed_text="x" * 12)
+def test_note_edit_drops_removed_positions_and_closes_the_gap():
+    session = TypingSession()
+    session.register_auto_fill(6, 4)  # 6..9
+    session.note_edit(7, 2, 0)  # 7 and 8 deleted; 9 moves down to 7
+    assert session.auto_filled == {6, 7}
+
+
+def test_note_edit_tail_deletion_drops_only_the_deleted_positions():
+    session = TypingSession()
     session.register_auto_fill(6, 4)
-    session.note_edit(10, 1)
+    session.note_edit(8, 2, 0)
+    assert session.auto_filled == {6, 7}
+
+
+def test_note_edit_edit_after_the_fill_changes_nothing():
+    session = TypingSession()
+    session.register_auto_fill(6, 4)
+    session.note_edit(10, 1, 1)
     assert session.auto_filled == {6, 7, 8, 9}
+
+
+def test_note_edit_selection_into_the_fill_is_not_auto_filled_afterwards():
+    session = TypingSession()
+    session.register_auto_fill(6, 4)  # 6..9
+    session.note_edit(7, 3, 1)  # select 7..9 and type one character over it
+    assert session.auto_filled == {6}
 
 
 def test_reset_clears_auto_fill():

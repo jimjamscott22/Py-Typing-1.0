@@ -24,7 +24,7 @@ const total = prices.reduce((sum, price) => sum + price, 0);
 console.log(`Total: ${total.toFixed(2)}`);
 """)),
     Snippet(_L, "Mid", "Destructuring with defaults", code(r"""
-function connect({ host = "localhost", port = 5432, ...rest } = {}) {
+function connect({ host = "db", port = 5432, ...rest }) {
   const url = `postgres://${host}:${port}`;
   return { url, options: rest };
 }
@@ -42,14 +42,11 @@ const byRole = users.reduce((groups, user) => {
 }, {});
 """)),
     Snippet(_L, "Senior", "Memoize with a closure", code(r"""
-function memoize(fn) {
-  const cache = new Map();
-  return (...args) => {
-    const key = JSON.stringify(args);
-    if (!cache.has(key)) cache.set(key, fn(...args));
-    return cache.get(key);
-  };
-}
+const memoize = (fn, cache = new Map()) => (...args) => {
+  const key = JSON.stringify(args);
+  if (!cache.has(key)) cache.set(key, fn(...args));
+  return cache.get(key);
+};
 """)),
     Snippet(_L, "Senior", "Generator take", code(r"""
 function* take(iterable, n) {

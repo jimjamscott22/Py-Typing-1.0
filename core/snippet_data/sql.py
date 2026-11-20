@@ -25,10 +25,10 @@ GROUP BY status
 ORDER BY total DESC;
 """)),
     Snippet(_L, "Mid", "Join with an aggregate", code(r"""
-SELECT c.name, COUNT(o.id) AS orders, SUM(o.total) AS revenue
+SELECT c.name, COUNT(o.id) AS orders, SUM(o.total) AS sales
 FROM customers c
 JOIN orders o ON o.customer_id = c.id
-GROUP BY c.name
+GROUP BY c.id, c.name
 HAVING SUM(o.total) > 1000;
 """)),
     Snippet(_L, "Mid", "Left join for missing rows", code(r"""
@@ -55,9 +55,11 @@ SELECT * FROM recent WHERE spent > 500;
 """)),
     Snippet(_L, "Senior", "Window function rank", code(r"""
 SELECT department, name, salary,
-  RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS rnk
+  RANK() OVER (
+    PARTITION BY department ORDER BY salary DESC
+  ) AS salary_rank
 FROM employees
-ORDER BY department, rnk;
+ORDER BY department, salary_rank;
 """)),
     Snippet(_L, "Senior", "Upsert with ON CONFLICT", code(r"""
 INSERT INTO counters (name, hits)

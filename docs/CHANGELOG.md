@@ -13,9 +13,9 @@
 **Design**: `docs/superpowers/specs/2026-11-19-code-snippets-and-key-sounds-design.md`
 
 ### What changed for users
-- 90 code snippets in the sidebar: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell and Active Directory, each in Junior / Mid / Senior tiers (3–8 lines each). They are ordinary lessons, so best WPM, history, weak-key stats and goals all apply.
+- 90 code snippets in the sidebar: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell and Active Directory, each in Junior / Mid / Senior tiers (3–7 lines, up to 60 columns each). They are ordinary lessons, so best WPM, history, weak-key stats and goals all apply.
 - Indentation is filled in after you press Enter on a correct line. It never counts toward WPM, accuracy, errors or the backspace penalty, and deleting it is free.
-- The typing box grows to show every line of a multi-line snippet (up to 8 lines).
+- The typing box grows for multi-line snippets (up to 5 lines, then it scrolls) and hides the shell prompt so code lines do not wrap.
 - Optional mechanical key sounds in Settings (clicky / tactile / linear, plus volume), with a low thunk on a wrong key. Off by default.
 - Snippet lessons do not count toward the "finish the curriculum" achievement.
 

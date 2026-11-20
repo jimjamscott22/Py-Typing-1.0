@@ -680,6 +680,9 @@ class TypingPracticeApp(QMainWindow):
         if (lines, spacing) == self._terminal_fit_key:
             return
         self._terminal_fit_key = (lines, spacing)
+        # The fake shell prompt costs ~200 px of input width; code needs that
+        # width so its lines do not wrap in the typing box.
+        self.terminal_prompt_label.setVisible(lines == 1)
         padding = 44  # the input's vertical padding (40) plus the frame border (4)
         height = max(TERMINAL_MIN_HEIGHT, min(lines, TERMINAL_MAX_LINES) * spacing + padding)
         self.terminal_frame.setMaximumHeight(height)
@@ -788,7 +791,7 @@ class TypingPracticeApp(QMainWindow):
                         self.session.is_active
                         and len(self.session.typed_text) > 0
                         # Deleting indentation the app filled in is not a mistake.
-                        and not self.session.is_auto_filled(len(self.session.typed_text) - 1)
+                        and not self._backspace_deletes_only_auto_fill()
                     ):
                         self.session.backspace_count += 1
                         self._update_backspace_label()
@@ -1261,6 +1264,19 @@ class TypingPracticeApp(QMainWindow):
             self.key_sounds.play(kind)
         self._auto_fill_indentation(changes)
         self.on_text_changed()
+
+    def _backspace_deletes_only_auto_fill(self) -> bool:
+        """True when the Backspace about to run removes only auto-filled characters.
+
+        Uses the cursor (or selection), not the end of the text, so interior
+        edits are judged by what they actually delete.
+        """
+        cursor = self.typing_input.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+        else:
+            start, end = cursor.position() - 1, cursor.position()
+        return start >= 0 and all(self.session.is_auto_filled(i) for i in range(start, end))
 
     def _auto_fill_indentation(self, changes: list) -> None:
         """After a correct Enter in a lesson, insert the next line's indentation."""

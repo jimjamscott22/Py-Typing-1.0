@@ -26,14 +26,13 @@ interface Point {
 const distance = (a: Point, b: Point): number =>
   Math.hypot(a.x - b.x, a.y - b.y);
 """)),
-    Snippet(_L, "Mid", "Debounce hook", code(r"""
-function useDebounce<T>(value: T, delay = 300): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(id);
-  }, [value, delay]);
-  return debounced;
+    Snippet(_L, "Mid", "Debounce function", code(r"""
+function debounce(fn: (...a: unknown[]) => void, ms = 300) {
+  let id: ReturnType<typeof setTimeout>;
+  return (...args: unknown[]) => {
+    clearTimeout(id);
+    id = setTimeout(() => fn(...args), ms);
+  };
 }
 """)),
     Snippet(_L, "Mid", "Discriminated union", code(r"""
@@ -41,16 +40,17 @@ type Shape =
   | { kind: "circle"; radius: number }
   | { kind: "rect"; width: number; height: number };
 
-const area = (s: Shape): number =>
-  s.kind === "circle" ? Math.PI * s.radius ** 2 : s.width * s.height;
+const area = (s: Shape) =>
+  s.kind === "circle" ? Math.PI * s.radius ** 2
+    : s.width * s.height;
 """)),
     Snippet(_L, "Mid", "Parallel loading with Promise.all", code(r"""
 async function loadDashboard(id: string) {
   const [user, orders] = await Promise.all([
-    fetchUser(id),
-    fetchOrders(id),
+    fetchUser(id), fetchOrders(id),
   ]);
-  return { user, total: orders.reduce((sum, o) => sum + o.amount, 0) };
+  const total = orders.reduce((s, o) => s + o.amount, 0);
+  return { user, total };
 }
 """)),
     Snippet(_L, "Senior", "Deep readonly mapped type", code(r"""
@@ -60,7 +60,7 @@ type DeepReadonly<T> = {
     : T[K];
 };
 
-type Config = DeepReadonly<{ db: { host: string; port: number } }>;
+type Config = DeepReadonly<{ db: { host: string } }>;
 """)),
     Snippet(_L, "Senior", "Key type guard", code(r"""
 function hasKey<T extends object>(
@@ -71,8 +71,8 @@ function hasKey<T extends object>(
 }
 """)),
     Snippet(_L, "Senior", "Generic pick helper", code(r"""
-function pick<T extends object, K extends keyof T>(obj: T, keys: K[]) {
-  const entries = keys.map((key) => [key, obj[key]] as const);
+function pick<T, K extends keyof T>(obj: T, keys: K[]) {
+  const entries = keys.map((k) => [k, obj[k]] as const);
   return Object.fromEntries(entries) as Pick<T, K>;
 }
 """)),

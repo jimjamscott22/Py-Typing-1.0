@@ -34,6 +34,18 @@ def test_timed_mode_with_snippet_lesson_does_not_crash(window):
     assert window.current_target_text == target
 
 
+def test_achievements_dialog_ignores_snippets_in_curriculum_progress(window):
+    from PyQt6.QtWidgets import QLabel
+
+    from ui.dialogs import AchievementsDialog
+
+    dialog = AchievementsDialog(window.progress_store, window.lessons, window)
+    texts = [label.text() for label in dialog.findChildren(QLabel)]
+    progress = [t for t in texts if "lesson texts" in t]
+    assert progress, "the curriculum badge should show its progress"
+    assert all("/ 62 lesson texts" in t for t in progress)
+
+
 def test_sidebar_lists_snippet_sections(window):
     sections = {
         window.lesson_list.item(row).data(SECTION_ROLE)
