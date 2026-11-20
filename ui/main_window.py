@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession
 from core.persistence import ProgressStore
 from core.session_controller import SessionController
+from core.autoindent import auto_fill_text
 from core.lessons import build_lessons
 from core.wordgen import (
     generate_text,
@@ -755,7 +756,12 @@ class TypingPracticeApp(QMainWindow):
                     return True  # Consume the event
                 else:
                     # Allow backspace but track it
-                    if self.session.is_active and len(self.session.typed_text) > 0:
+                    if (
+                        self.session.is_active
+                        and len(self.session.typed_text) > 0
+                        # Deleting indentation the app filled in is not a mistake.
+                        and not self.session.is_auto_filled(len(self.session.typed_text) - 1)
+                    ):
                         self.session.backspace_count += 1
                         self._update_backspace_label()
         
@@ -1223,7 +1229,19 @@ class TypingPracticeApp(QMainWindow):
             self._last_target_typed_len = 0
             self._last_highlighted_length = 0
         self.controller.record_edit(changes, self.current_target_text)
+        self._auto_fill_indentation(changes)
         self.on_text_changed()
+
+    def _auto_fill_indentation(self, changes: list) -> None:
+        """After a correct Enter in a lesson, insert the next line's indentation."""
+        if self.mode != "lesson" or self.warmup_mode:
+            return
+        typed = self.typing_input.toPlainText()
+        fill = auto_fill_text(self.current_target_text, typed, changes)
+        if fill:
+            # Register first: the insert triggers a sync that prunes stale positions.
+            self.session.register_auto_fill(len(typed), len(fill))
+            self.typing_input.insert_auto_fill(fill)
 
     def on_text_changed(self) -> None:
         """Handle updates when the user types or deletes characters."""
@@ -1519,6 +1537,7 @@ class TypingPracticeApp(QMainWindow):
             elapsed_seconds=elapsed,
             backspace_count=self.session.backspace_count,
             penalty_factor=penalty_factor,
+            auto_filled=self.session.auto_filled_count,
         )
 
     def _update_accuracy_label(self, typed: str) -> None:
@@ -1532,6 +1551,7 @@ class TypingPracticeApp(QMainWindow):
             mismatch_errors=self.session.errors,
             backspace_count=self.session.backspace_count,
             backspace_weight=self._backspace_accuracy_weight,
+            auto_filled=self.session.auto_filled_count,
         )
 
     def _update_progress_indicators(self, typed: str, target: str) -> None:
