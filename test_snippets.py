@@ -16,15 +16,22 @@ CORE_TEXT_COUNT = 62
 # Languages whose snippet content is complete; each content task extends this.
 COMPLETED_LANGUAGES: list[str] = [
     "TypeScript", "JavaScript", "Python", "Rust", "Go", "SQL", "HTML/CSS", "C++",
-    "PowerShell",
+    "PowerShell", "Active Directory",
 ]
 
 # Every Verb-Noun cmdlet used by the PowerShell and Active Directory snippets
 # must be listed here. Names were checked against Microsoft Learn; Test-NetConnection,
 # Get-CimInstance, Where-Object, Export-Csv (-Path/-NoTypeInformation/-Encoding),
 # Get-ChildItem, Sort-Object and Invoke-Command (-ComputerName/-ScriptBlock) had their
-# parameters read from the docs, the rest are core cmdlets.
+# parameters read from the docs; so did Search-ADAccount (-LockedOut, -UsersOnly),
+# Unlock-ADAccount (-Identity), Get-ADReplicationFailure (-Target and the Server,
+# FirstFailureTime, FailureCount, LastError properties) and Get-GPO (-All, GpoStatus).
+# The rest are core or well-known ActiveDirectory cmdlets.
 KNOWN_CMDLETS = {
+    "Get-ADUser", "Get-ADGroupMember", "Get-ADComputer", "Search-ADAccount",
+    "Unlock-ADAccount", "New-ADUser", "Add-ADGroupMember", "Get-ADDomainController",
+    "Get-ADReplicationFailure", "Get-ADDefaultDomainPasswordPolicy", "Get-GPO",
+    "Get-Date", "Import-Csv",
     "Get-ChildItem", "Where-Object", "Sort-Object", "Select-Object", "Get-Process",
     "Write-Host", "Get-Service", "Start-Service", "Write-Output", "Get-CimInstance",
     "Export-Csv", "Get-Content", "Write-Warning", "Test-NetConnection",
