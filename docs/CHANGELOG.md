@@ -6,6 +6,33 @@
 
 ---
 
+## [Unreleased] — Code Snippets and Mechanical Key Sounds
+
+**Status**: ✅ Shipped
+**Tests**: `test_snippets.py`, `test_snippet_window.py`, `test_snippet_layout.py`, `test_autoindent.py`, `test_autoindent_window.py`, `test_keysounds.py`, plus additions to `test_scoring.py`
+**Design**: `docs/superpowers/specs/2026-11-19-code-snippets-and-key-sounds-design.md`
+
+### What changed for users
+- 90 code snippets in the sidebar: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell and Active Directory, each in Junior / Mid / Senior tiers (3–8 lines each). They are ordinary lessons, so best WPM, history, weak-key stats and goals all apply.
+- Indentation is filled in after you press Enter on a correct line. It never counts toward WPM, accuracy, errors or the backspace penalty, and deleting it is free.
+- The typing box grows to show every line of a multi-line snippet (up to 8 lines).
+- Optional mechanical key sounds in Settings (clicky / tactile / linear, plus volume), with a low thunk on a wrong key. Off by default.
+- Snippet lessons do not count toward the "finish the curriculum" achievement.
+
+### What changed for developers
+
+| Module | Change |
+|--------|--------|
+| `core/snippets.py`, `core/snippet_data/` | **New.** `Snippet` data per language and `build_snippet_lessons()`. |
+| `core/lessons.py` | `build_lessons()` = `_build_core_lessons()` + snippet lessons (appended, so no saved index shifts); `curriculum_text_counts()`, `completion_message()`. |
+| `core/models.py` | `Snippet`; `Lesson.curriculum`; `TypingSession` auto-fill bookkeeping (`auto_filled`, `keystroke_length`, …). |
+| `core/autoindent.py` | **New.** `auto_fill_text()`. |
+| `core/scoring.py` | `calculate_wpm`/`calculate_accuracy` take `auto_filled`. |
+| `core/keysounds.py` | **New.** Pure-Python key sound synthesis, `classify_edit()`, `KeySoundPlayer`. |
+| `ui/typing_input.py`, `ui/main_window.py`, `ui/dialogs.py` | `insert_auto_fill`; auto-fill, sound hook and frame sizing in the window; Key Sounds and Key Volume controls in Settings. |
+
+---
+
 ## [Unreleased] — Bigram/Trigram Transition Timing
 
 **Status**: ✅ Shipped
