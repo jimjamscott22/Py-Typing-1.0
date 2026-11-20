@@ -13,7 +13,7 @@ CORE_LESSON_COUNT = 18
 CORE_TEXT_COUNT = 62
 
 # Languages whose snippet content is complete; each content task extends this.
-COMPLETED_LANGUAGES: list[str] = []
+COMPLETED_LANGUAGES: list[str] = ["TypeScript", "JavaScript", "Python"]
 
 
 def test_core_lessons_unchanged_and_first():
