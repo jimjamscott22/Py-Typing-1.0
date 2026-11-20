@@ -1,7 +1,7 @@
 """Typing input that distinguishes user edits from display/programmatic changes."""
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QKeySequence
+from PyQt6.QtGui import QKeySequence, QTextCursor
 from PyQt6.QtWidgets import QTextEdit
 
 from core.transitions import TextChange
@@ -35,6 +35,17 @@ class TypingInput(QTextEdit):
         finally:
             self.editing = False
         self.user_edited.emit(self._changes)
+
+    def insert_auto_fill(self, text: str) -> None:
+        """Append text the user did not type (e.g. indentation after Enter).
+
+        `editing` stays False, so no `TextChange` is captured and `user_edited`
+        is not emitted: edit trackers, sounds and key stats never see it.
+        """
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        self.setTextCursor(cursor)
 
     def keyPressEvent(self, event):
         # Undo/redo restore text rather than constitute fresh typing attempts.

@@ -22,6 +22,8 @@ Train your typing speed and accuracy in minutes — lightweight, local, and desi
 - **Keyboard error heatmap** showing problem keys
 - **Bigram/trigram transition timing** shows which two- and three-character sequences slow you down most
 - **Developer Keys** practice mode for symbols and code-friendly drills
+- **Code snippets** in Junior / Mid / Senior tiers for TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell and Active Directory — pick a language from the sidebar. Indentation is filled in after Enter and never counts toward your speed or accuracy
+- **Mechanical key sounds** (optional, off by default): clicky, tactile or linear switch sounds with a volume control and a low thunk on a wrong key — enable them in Settings
 - **Weak Key Practice** mixes key sequences and words based on recent typing mistakes
 - Strict mode to prevent backspacing
 - Free practice mode for custom text, with import from a `.txt` file

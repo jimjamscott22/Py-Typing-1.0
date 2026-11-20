@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QFontMetrics, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -26,7 +26,8 @@ from PyQt6.QtWidgets import (
 from core.models import TypingSession
 from core.persistence import ProgressStore
 from core.session_controller import SessionController
-from core.lessons import build_lessons
+from core.autoindent import auto_fill_text
+from core.lessons import build_lessons, completion_message, curriculum_text_counts
 from core.wordgen import (
     generate_text,
     generate_developer_text,
@@ -35,6 +36,7 @@ from core.wordgen import (
     timed_word_count,
 )
 from core.audio import CelebrationSoundManager
+from core.keysounds import KeySoundPlayer, classify_edit
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
 from core.analytics import compute_streaks, get_practice_recommendations
@@ -54,6 +56,8 @@ from core.constants import (
     DEFAULT_THEME,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_KEY_SOUND_PROFILE,
+    DEFAULT_KEY_SOUND_VOLUME,
     DAILY_CHALLENGE_COIN_REWARD,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
@@ -61,6 +65,8 @@ from core.constants import (
     SPACING_XS,
     SPACING_SM,
     SPACING_LG,
+    TERMINAL_MIN_HEIGHT,
+    TERMINAL_MAX_LINES,
 )
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
@@ -132,6 +138,8 @@ class TypingPracticeApp(QMainWindow):
 
         # Initialize the celebration sound manager with this window as parent
         CelebrationSoundManager.initialize(self)
+        # Per-keystroke mechanical sounds (off until enabled in Settings).
+        self.key_sounds = KeySoundPlayer(self)
 
         # Assuming typing_progress.json is in the root folder relative to execution or same folder
         # We'll look for it relative to the main script execution
@@ -223,6 +231,7 @@ class TypingPracticeApp(QMainWindow):
             self.celebration_overlay.resize(self.size())
 
     def closeEvent(self, event) -> None:
+        self.key_sounds.shutdown()
         self.progress_store.save()
         super().closeEvent(event)
 
@@ -462,12 +471,13 @@ class TypingPracticeApp(QMainWindow):
 
         # Terminal-emulator dressing: a fake shell prompt sits to the left of
         # the input, so typing here reads like a Kitty/Ghostty session.
-        terminal_frame = QWidget()
-        terminal_frame.setMaximumHeight(150)
-        terminal_frame.setStyleSheet(
+        self.terminal_frame = QWidget()
+        self.terminal_frame.setMaximumHeight(TERMINAL_MIN_HEIGHT)
+        self._terminal_fit_key = None  # (line count, line spacing) last fitted to
+        self.terminal_frame.setStyleSheet(
             "background-color: #0c0c0c; border: 2px solid #333333; border-radius: 8px;"
         )
-        terminal_layout = QHBoxLayout(terminal_frame)
+        terminal_layout = QHBoxLayout(self.terminal_frame)
         terminal_layout.setContentsMargins(16, 0, 0, 0)
         terminal_layout.setSpacing(0)
 
@@ -480,7 +490,7 @@ class TypingPracticeApp(QMainWindow):
         terminal_layout.addWidget(self.terminal_prompt_label)
         terminal_layout.addWidget(self.typing_input)
 
-        layout.addWidget(terminal_frame)
+        layout.addWidget(self.terminal_frame)
 
         formats = make_input_formats(self.current_theme)
         self.input_default_format = formats.default
@@ -656,7 +666,29 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
+        self._terminal_fit_key = None  # the line height changed; refit on next display
+        self.key_sounds.configure(
+            self.progress_store.get_setting("key_sound_profile", DEFAULT_KEY_SOUND_PROFILE),
+            self.progress_store.get_setting("key_sound_volume", DEFAULT_KEY_SOUND_VOLUME),
+        )
         self._refresh_realtime_feedback_indicators()
+
+    def _fit_terminal_frame_height(self) -> None:
+        """Let the typing frame grow to show every line of a multi-line target."""
+        lines = self.current_target_text.count("\n") + 1
+        spacing = QFontMetrics(self.typing_input.font()).lineSpacing()
+        if (lines, spacing) == self._terminal_fit_key:
+            return
+        self._terminal_fit_key = (lines, spacing)
+        # The fake shell prompt costs ~200 px of input width; code needs that
+        # width so its lines do not wrap in the typing box.
+        self.terminal_prompt_label.setVisible(lines == 1)
+        padding = 44  # the input's vertical padding (40) plus the frame border (4)
+        height = max(TERMINAL_MIN_HEIGHT, min(lines, TERMINAL_MAX_LINES) * spacing + padding)
+        self.terminal_frame.setMaximumHeight(height)
+        # A larger maximum alone does not make the layout grow the frame, so a
+        # multi-line target also pins a minimum; single lines keep the old behavior.
+        self.terminal_frame.setMinimumHeight(height if height > TERMINAL_MIN_HEIGHT else 0)
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -755,7 +787,12 @@ class TypingPracticeApp(QMainWindow):
                     return True  # Consume the event
                 else:
                     # Allow backspace but track it
-                    if self.session.is_active and len(self.session.typed_text) > 0:
+                    if (
+                        self.session.is_active
+                        and len(self.session.typed_text) > 0
+                        # Deleting indentation the app filled in is not a mistake.
+                        and not self._backspace_deletes_only_auto_fill()
+                    ):
                         self.session.backspace_count += 1
                         self._update_backspace_label()
         
@@ -1223,7 +1260,34 @@ class TypingPracticeApp(QMainWindow):
             self._last_target_typed_len = 0
             self._last_highlighted_length = 0
         self.controller.record_edit(changes, self.current_target_text)
+        for kind in classify_edit(changes, self.current_target_text):
+            self.key_sounds.play(kind)
+        self._auto_fill_indentation(changes)
         self.on_text_changed()
+
+    def _backspace_deletes_only_auto_fill(self) -> bool:
+        """True when the Backspace about to run removes only auto-filled characters.
+
+        Uses the cursor (or selection), not the end of the text, so interior
+        edits are judged by what they actually delete.
+        """
+        cursor = self.typing_input.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+        else:
+            start, end = cursor.position() - 1, cursor.position()
+        return start >= 0 and all(self.session.is_auto_filled(i) for i in range(start, end))
+
+    def _auto_fill_indentation(self, changes: list) -> None:
+        """After a correct Enter in a lesson, insert the next line's indentation."""
+        if self.mode != "lesson" or self.warmup_mode:
+            return
+        typed = self.typing_input.toPlainText()
+        fill = auto_fill_text(self.current_target_text, typed, changes)
+        if fill:
+            # Register first: the insert triggers a sync that prunes stale positions.
+            self.session.register_auto_fill(len(typed), len(fill))
+            self.typing_input.insert_auto_fill(fill)
 
     def on_text_changed(self) -> None:
         """Handle updates when the user types or deletes characters."""
@@ -1298,6 +1362,7 @@ class TypingPracticeApp(QMainWindow):
 
     def update_display(self) -> None:
         """Update highlighted text and real-time statistics."""
+        self._fit_terminal_frame_height()
         target = self.current_target_text
         typed = self.session.typed_text
 
@@ -1519,6 +1584,7 @@ class TypingPracticeApp(QMainWindow):
             elapsed_seconds=elapsed,
             backspace_count=self.session.backspace_count,
             penalty_factor=penalty_factor,
+            auto_filled=self.session.auto_filled_count,
         )
 
     def _update_accuracy_label(self, typed: str) -> None:
@@ -1532,6 +1598,7 @@ class TypingPracticeApp(QMainWindow):
             mismatch_errors=self.session.errors,
             backspace_count=self.session.backspace_count,
             backspace_weight=self._backspace_accuracy_weight,
+            auto_filled=self.session.auto_filled_count,
         )
 
     def _update_progress_indicators(self, typed: str, target: str) -> None:
@@ -1653,7 +1720,7 @@ class TypingPracticeApp(QMainWindow):
             lesson_index=self.current_lesson_index,
             text_index=self.current_text_index,
             lesson_name=lesson_name,
-            lesson_text_counts=[len(lesson.texts) for lesson in self.lessons],
+            lesson_text_counts=curriculum_text_counts(self.lessons),
         )
 
         self.typing_input.setReadOnly(True)
@@ -1772,7 +1839,7 @@ class TypingPracticeApp(QMainWindow):
             self.lesson_list.setCurrentRow(self._row_for_lesson(self.current_lesson_index + 1))
             return
 
-        self._update_description("🏆 Congratulations! You've completed all lessons!", mode="complete")
+        self._update_description(completion_message(lesson), mode="complete")
 
     def _update_best_wpm_label(self, current_wpm: Optional[int] = None) -> None:
         if self.mode != "lesson":
@@ -1842,7 +1909,7 @@ class TypingPracticeApp(QMainWindow):
     def _sync_achievements(self) -> List[str]:
         """Persist any achievements earned by the current recorded progress."""
         return self.controller.sync_achievements(
-            [len(lesson.texts) for lesson in self.lessons]
+            curriculum_text_counts(self.lessons)
         )
 
     def _show_challenges(self) -> None:

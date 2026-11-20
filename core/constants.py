@@ -5,6 +5,11 @@ SPACING_MD = 12
 SPACING_LG = 16
 SPACING_XL = 24
 
+# Typing frame: minimum height (px) and how many lines of a multi-line target
+# (code snippets) it may grow to show.
+TERMINAL_MIN_HEIGHT = 150
+TERMINAL_MAX_LINES = 5  # the frame grows to show this many lines, then the input scrolls
+
 # Default settings values
 DEFAULT_BACKSPACE_PENALTY = 3  # WPM penalty per backspace
 DEFAULT_BACKSPACE_ACCURACY_WEIGHT = 0.5  # Each backspace counts as 0.5 errors
@@ -20,6 +25,9 @@ DEFAULT_DEVELOPER_KEYS_MODE = "symbol-heavy"
 DEFAULT_THEME = "Light"  # Default theme name
 DEFAULT_TIMED_MODE_SECONDS = 0  # 0 = disabled; 60/120/300 for timed drills
 DEFAULT_ADAPTIVE_DRILLS = True  # Weight random words toward weak keys
+DEFAULT_KEY_SOUND_PROFILE = "off"  # Mechanical key sounds are opt-in
+DEFAULT_KEY_SOUND_VOLUME = 60  # 0-100
+KEY_SOUND_PROFILES = ("off", "clicky", "tactile", "linear")
 
 DEFAULT_DAILY_GOAL_MINUTES = 10  # Personal daily practice-time goal
 DEFAULT_WEEKLY_GOAL_SESSIONS = 5  # Personal weekly session-count goal

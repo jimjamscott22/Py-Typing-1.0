@@ -81,6 +81,7 @@ class SessionController:
     def update_typed_text(self, typed_text: str, target_text: str) -> EditOutcome:
         """Mirror the input box into session state and detect start/completion."""
         self.session.typed_text = typed_text
+        self.session.prune_auto_fill(len(typed_text))
         self.session.errors = sum(
             actual != expected for actual, expected in zip(typed_text, target_text)
         )
@@ -100,6 +101,7 @@ class SessionController:
         """Record per-character attempt/error stats and transition timings."""
         timestamp = self._transition_clock()
         for change in changes:
+            self.session.note_edit(change.position, change.removed, len(change.inserted))
             for offset, char in enumerate(change.inserted):
                 index = change.position + offset
                 if index < len(target_text):
@@ -189,11 +191,13 @@ class SessionController:
         elapsed_seconds = (
             time.time() - self.session.start_time if self.session.start_time else 0.0
         )
+        auto_filled = self.session.auto_filled_count
         wpm = calculate_wpm(
             typed=self.session.typed_text,
             elapsed_seconds=elapsed_seconds,
             backspace_count=self.session.backspace_count,
             penalty_factor=self.backspace_penalty,
+            auto_filled=auto_filled,
         )
         accuracy = calculate_accuracy(
             typed=self.session.typed_text,
@@ -201,6 +205,7 @@ class SessionController:
             mismatch_errors=self.session.errors,
             backspace_count=self.session.backspace_count,
             backspace_weight=self.backspace_accuracy_weight,
+            auto_filled=auto_filled,
         )
         self.round_complete = True
 
@@ -227,7 +232,9 @@ class SessionController:
                 backspaces=backspace_count,
                 duration_seconds=round(elapsed_seconds, 1),
                 text_length=(
-                    len(self.session.typed_text) if timed_out else len(target_text)
+                    self.session.keystroke_length(len(self.session.typed_text))
+                    if timed_out
+                    else len(target_text) - auto_filled
                 ),
             )
             self.progress_store.add_session_record(record)

@@ -61,3 +61,16 @@ class TestCalculateAccuracy:
         )
         # total errors = 1 mismatch + 1 extra + 2 backspace = 4; correct = 0
         assert acc == 0.0
+
+
+class TestAutoFilled:
+    def test_wpm_excludes_auto_filled_characters(self):
+        # 60 chars typed, 10 auto-filled => 50 chars = 10 words in 1 minute
+        assert calculate_wpm("a" * 60, 60.0, 0, 3, auto_filled=10) == 10
+
+    def test_accuracy_excludes_auto_filled_from_numerator_and_denominator(self):
+        acc = calculate_accuracy("a" * 8, "a" * 8, 1, 0, 0.5, auto_filled=4)
+        assert acc == 75.0
+
+    def test_accuracy_is_100_when_everything_was_auto_filled(self):
+        assert calculate_accuracy("    ", "    ", 0, 0, 0.5, auto_filled=4) == 100.0
