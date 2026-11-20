@@ -336,3 +336,14 @@ def test_completing_keystroke_still_plays(window):
     QTest.keyClicks(window.typing_input, "ab")
     assert window._round_complete is True
     assert window.key_sounds.played == ["letter", "letter"]
+
+
+def test_new_store_seeds_key_sound_defaults(tmp_path):
+    from core.persistence import ProgressStore
+
+    store = ProgressStore(tmp_path / "typing_progress.json")
+    try:
+        assert store.get_setting("key_sound_profile") == "off"
+        assert store.get_setting("key_sound_volume") == 60
+    finally:
+        store.close()
