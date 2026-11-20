@@ -5,6 +5,11 @@ SPACING_MD = 12
 SPACING_LG = 16
 SPACING_XL = 24
 
+# Typing frame: minimum height (px) and how many lines of a multi-line target
+# (code snippets) it may grow to show.
+TERMINAL_MIN_HEIGHT = 150
+TERMINAL_MAX_LINES = 8  # measured: 8 lines needs a 1002 px window at 16 pt; 12 needs 1190
+
 # Default settings values
 DEFAULT_BACKSPACE_PENALTY = 3  # WPM penalty per backspace
 DEFAULT_BACKSPACE_ACCURACY_WEIGHT = 0.5  # Each backspace counts as 0.5 errors

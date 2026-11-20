@@ -158,7 +158,9 @@ regex, nested delimiters, concurrency, bulk operations.
 - 10 sections: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++,
   PowerShell, Active Directory. Target 3 snippets per tier (~90 total).
 - Written fresh; ideas may follow TypeForge-R, text is not copied.
-- Each snippet is 3–12 lines, at most ~450 characters, and no line longer than
+- Each snippet is 3–8 lines (revised from 12 during implementation: at the
+  default 16 pt font the window needs 1002 px for 8 lines with the keyboard
+  shown but 1190 px for 12, taller than a 1080p screen), at most ~450 characters, and no line longer than
   72 characters, so a round stays a round and lines do not wrap at the default
   font size.
 - Typeable on a US keyboard: ASCII only, `\n` newlines, **spaces for
@@ -235,7 +237,7 @@ two spaces.
 
 `terminal_frame` is capped at 150 px, which fits only 3–4 lines. For lessons
 whose target has multiple lines, the frame's height grows to fit the target's
-line count (minimum 150 px as today, capped at about 12 lines' worth), and
+line count (minimum 150 px as today, capped at 8 lines' worth), and
 returns to 150 px for single-line targets. Keyboard and controls must stay on
 screen at the default window size. Lines longer than the widget wrap in both
 the target and the input; the 72-character content cap keeps that from
@@ -342,7 +344,7 @@ running `uv run main.py` and tuning the profile parameters if needed.
 8. Snippet text written fresh rather than copied from TypeForge-R.
 9. Next/Space does not flow past "Weak Key Practice" into the snippets (as
    today); snippets are entered from the sidebar. End-of-list message reworded.
-10. Typing frame grows (up to ~12 lines) for multi-line targets; snippet lines
+10. Typing frame grows (up to 8 lines; snippets capped at 8 lines) for multi-line targets; snippet lines
     capped at 72 characters.
 11. Statistics use keystroke characters (auto-fill excluded), including the
     recorded `text_length` and achievement minimum-length checks.

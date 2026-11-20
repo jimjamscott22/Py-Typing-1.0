@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QEvent, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QFontMetrics, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -62,6 +62,8 @@ from core.constants import (
     SPACING_XS,
     SPACING_SM,
     SPACING_LG,
+    TERMINAL_MIN_HEIGHT,
+    TERMINAL_MAX_LINES,
 )
 from core.warmup import get_warmup_text
 from core.best_wpm import BestWpmTracker
@@ -463,12 +465,13 @@ class TypingPracticeApp(QMainWindow):
 
         # Terminal-emulator dressing: a fake shell prompt sits to the left of
         # the input, so typing here reads like a Kitty/Ghostty session.
-        terminal_frame = QWidget()
-        terminal_frame.setMaximumHeight(150)
-        terminal_frame.setStyleSheet(
+        self.terminal_frame = QWidget()
+        self.terminal_frame.setMaximumHeight(TERMINAL_MIN_HEIGHT)
+        self._terminal_fit_key = None  # (line count, line spacing) last fitted to
+        self.terminal_frame.setStyleSheet(
             "background-color: #0c0c0c; border: 2px solid #333333; border-radius: 8px;"
         )
-        terminal_layout = QHBoxLayout(terminal_frame)
+        terminal_layout = QHBoxLayout(self.terminal_frame)
         terminal_layout.setContentsMargins(16, 0, 0, 0)
         terminal_layout.setSpacing(0)
 
@@ -481,7 +484,7 @@ class TypingPracticeApp(QMainWindow):
         terminal_layout.addWidget(self.terminal_prompt_label)
         terminal_layout.addWidget(self.typing_input)
 
-        layout.addWidget(terminal_frame)
+        layout.addWidget(self.terminal_frame)
 
         formats = make_input_formats(self.current_theme)
         self.input_default_format = formats.default
@@ -657,7 +660,22 @@ class TypingPracticeApp(QMainWindow):
         font_size = self.progress_store.get_setting("font_size", DEFAULT_FONT_SIZE)
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
+        self._terminal_fit_key = None  # the line height changed; refit on next display
         self._refresh_realtime_feedback_indicators()
+
+    def _fit_terminal_frame_height(self) -> None:
+        """Let the typing frame grow to show every line of a multi-line target."""
+        lines = self.current_target_text.count("\n") + 1
+        spacing = QFontMetrics(self.typing_input.font()).lineSpacing()
+        if (lines, spacing) == self._terminal_fit_key:
+            return
+        self._terminal_fit_key = (lines, spacing)
+        padding = 44  # the input's vertical padding (40) plus the frame border (4)
+        height = max(TERMINAL_MIN_HEIGHT, min(lines, TERMINAL_MAX_LINES) * spacing + padding)
+        self.terminal_frame.setMaximumHeight(height)
+        # A larger maximum alone does not make the layout grow the frame, so a
+        # multi-line target also pins a minimum; single lines keep the old behavior.
+        self.terminal_frame.setMinimumHeight(height if height > TERMINAL_MIN_HEIGHT else 0)
 
     def _apply_theme(self) -> None:
         """Apply the current theme to the application."""
@@ -1316,6 +1334,7 @@ class TypingPracticeApp(QMainWindow):
 
     def update_display(self) -> None:
         """Update highlighted text and real-time statistics."""
+        self._fit_terminal_frame_height()
         target = self.current_target_text
         typed = self.session.typed_text
 

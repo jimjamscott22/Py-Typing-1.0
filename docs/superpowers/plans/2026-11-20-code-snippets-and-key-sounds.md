@@ -14,7 +14,7 @@
 
 - No new dependencies. Sound synthesis uses stdlib `wave`/`math` only (no numpy). Package management via `uv`.
 - Existing lesson indexes never change: the 18 existing lessons stay first ("Weak Key Practice" is index 17, `texts == ["__WEAK_KEYS__"]`); snippet lessons are appended after it.
-- Snippets: 3–12 lines, ≤450 characters, no line >72 characters, ASCII, `\n` newlines, spaces only (no tabs, Go included), no trailing whitespace, no final newline, 3 snippets per tier, written fresh (do not copy TypeForge-R text).
+- Snippets: 3–8 lines (revised from 12 after measuring layout in Task 3), ≤450 characters, no line >72 characters, ASCII, `\n` newlines, spaces only (no tabs, Go included), no trailing whitespace, no final newline, 3 snippets per tier, written fresh (do not copy TypeForge-R text).
 - Languages, in sidebar order: TypeScript, JavaScript, Python, Rust, Go, SQL, HTML/CSS, C++, PowerShell, Active Directory. Tiers: Junior, Mid, Senior.
 - Auto-filled indentation is never an attempt, error, transition sample, feedback event or sound, and is excluded from WPM, accuracy, recorded `text_length` and the backspace penalty.
 - The curriculum achievement target must not grow (snippet lessons contribute 0 to `lesson_text_counts`).
@@ -97,7 +97,7 @@ Input classes the spec implies but a happy-path build would miss (each is pinned
 - Test: `test_snippet_layout.py` (new)
 
 **Interfaces:**
-- Produces: constants `TERMINAL_MIN_HEIGHT = 150`, `TERMINAL_MAX_LINES = 12`; `TypingPracticeApp._fit_terminal_frame_height() -> None` — sets `self.terminal_frame.setMaximumHeight(h)` with `h = clamp(lines * spacing + 44, TERMINAL_MIN_HEIGHT, TERMINAL_MAX_LINES * spacing + 44)`, where `lines = current_target_text.count("\n") + 1`, `spacing = QFontMetrics(self.typing_input.font()).lineSpacing()` and 44 is the input's vertical padding (40) plus border (4). Recompute only when `(lines, font size)` changed.
+- Produces: constants `TERMINAL_MIN_HEIGHT = 150`, `TERMINAL_MAX_LINES = 8` (revised from 12: measured minimum window height at 16 pt with the keyboard shown is 850 px up to 3 lines, 922 at 6, 1002 at 8, 1190 at 12); `TypingPracticeApp._fit_terminal_frame_height() -> None` — sets `self.terminal_frame.setMaximumHeight(h)` with `h = clamp(lines * spacing + 44, TERMINAL_MIN_HEIGHT, TERMINAL_MAX_LINES * spacing + 44)`, where `lines = current_target_text.count("\n") + 1`, `spacing = QFontMetrics(self.typing_input.font()).lineSpacing()` and 44 is the input's vertical padding (40) plus border (4). Recompute only when `(lines, font size)` changed.
 
 - [ ] **Step 1: Write failing tests** (`set_target(window, text)` then `window.update_display()`): `test_single_line_keeps_150` (`terminal_frame.maximumHeight() == 150`); `test_eight_lines_grow` (`> 150` and `>= 8 * spacing + 44`); `test_thirty_lines_capped` (`== 12 * spacing + 44`); `test_returns_to_150_for_single_line_again`; `test_font_size_change_refits` (set font size setting 28, `window._apply_settings()`, `update_display()` → height for 8 lines increases vs. 12 pt).
 - [ ] **Step 2: Run** `uv run pytest -q test_snippet_layout.py` — Expected: FAIL.
@@ -130,7 +130,7 @@ Input classes the spec implies but a happy-path build would miss (each is pinned
   - `test_unknown_language_or_tier_rejected` (`pytest.raises(ValueError)`).
   - `test_curriculum_text_counts_ignore_snippets`: `counts = curriculum_text_counts(build_lessons())`; `sum(counts) == 62`; `counts[18:]` all zero.
   - `test_completion_message_differs_for_snippets`.
-  - Quality tests over `SNIPPETS` (vacuous until content lands; `ids` = `"{language}-{difficulty}-{title}"`): `test_snippet_well_formed` (known language and tier; `text.isascii()`; no `"\t"`/`"\r"`; no line with trailing whitespace; not `endswith("\n")`; 3 ≤ lines ≤ 12; `len(text) <= 450`; every line ≤ 72), `test_no_duplicate_titles_or_texts`, `test_python_snippets_parse` (`ast.parse`).
+  - Quality tests over `SNIPPETS` (vacuous until content lands; `ids` = `"{language}-{difficulty}-{title}"`): `test_snippet_well_formed` (known language and tier; `text.isascii()`; no `"\t"`/`"\r"`; no line with trailing whitespace; not `endswith("\n")`; 3 ≤ lines ≤ 8; `len(text) <= 450`; every line ≤ 72), `test_no_duplicate_titles_or_texts`, `test_python_snippets_parse` (`ast.parse`).
   - `COMPLETED_LANGUAGES: list[str] = []` plus `test_language_covers_all_tiers_with_three_snippets` parametrized over it (each tier has ≥3 snippets); each content task appends its languages.
 - [ ] **Step 2: Run** `uv run pytest -q test_snippets.py` — Expected: FAIL (imports missing).
 - [ ] **Step 3: Implement** the interfaces above. In `ui/main_window.py` replace both `[len(lesson.texts) for lesson in self.lessons]` sites (finalize call and the Achievements dialog call) with `curriculum_text_counts(self.lessons)`, and the end-of-list `_update_description(...)` call in `next_text` with `completion_message(lesson)`.
