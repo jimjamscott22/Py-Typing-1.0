@@ -36,6 +36,7 @@ from core.wordgen import (
     timed_word_count,
 )
 from core.audio import CelebrationSoundManager
+from core.keysounds import KeySoundPlayer, classify_edit
 from core.themes import get_theme, Theme
 from core.scoring import calculate_wpm, calculate_accuracy
 from core.analytics import compute_streaks, get_practice_recommendations
@@ -55,6 +56,8 @@ from core.constants import (
     DEFAULT_THEME,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_KEY_SOUND_PROFILE,
+    DEFAULT_KEY_SOUND_VOLUME,
     DAILY_CHALLENGE_COIN_REWARD,
     FREE_PRACTICE_DESCRIPTION,
     FREE_PRACTICE_PLACEHOLDER,
@@ -135,6 +138,8 @@ class TypingPracticeApp(QMainWindow):
 
         # Initialize the celebration sound manager with this window as parent
         CelebrationSoundManager.initialize(self)
+        # Per-keystroke mechanical sounds (off until enabled in Settings).
+        self.key_sounds = KeySoundPlayer(self)
 
         # Assuming typing_progress.json is in the root folder relative to execution or same folder
         # We'll look for it relative to the main script execution
@@ -226,6 +231,7 @@ class TypingPracticeApp(QMainWindow):
             self.celebration_overlay.resize(self.size())
 
     def closeEvent(self, event) -> None:
+        self.key_sounds.shutdown()
         self.progress_store.save()
         super().closeEvent(event)
 
@@ -661,6 +667,10 @@ class TypingPracticeApp(QMainWindow):
         self.typing_input.setFont(QFont("Courier New", font_size))
         self.target_text.setFont(QFont("Courier New", font_size))
         self._terminal_fit_key = None  # the line height changed; refit on next display
+        self.key_sounds.configure(
+            self.progress_store.get_setting("key_sound_profile", DEFAULT_KEY_SOUND_PROFILE),
+            self.progress_store.get_setting("key_sound_volume", DEFAULT_KEY_SOUND_VOLUME),
+        )
         self._refresh_realtime_feedback_indicators()
 
     def _fit_terminal_frame_height(self) -> None:
@@ -1247,6 +1257,8 @@ class TypingPracticeApp(QMainWindow):
             self._last_target_typed_len = 0
             self._last_highlighted_length = 0
         self.controller.record_edit(changes, self.current_target_text)
+        for kind in classify_edit(changes, self.current_target_text):
+            self.key_sounds.play(kind)
         self._auto_fill_indentation(changes)
         self.on_text_changed()
 

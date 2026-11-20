@@ -1,4 +1,8 @@
-"""Tests for core/keysounds.py: synthesis, edit classification and the player."""
+"""Tests for core/keysounds.py (synthesis, classification, player) and its wiring."""
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import io
 import struct
@@ -7,6 +11,9 @@ import wave
 from pathlib import Path
 
 import pytest
+from PyQt6.QtCore import QMimeData, Qt
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication
 
 import core.keysounds as keysounds
 from core.keysounds import (
@@ -19,7 +26,10 @@ from core.keysounds import (
     synthesize,
     synthesize_error,
 )
+from core.constants import DEFAULT_KEY_SOUND_PROFILE, DEFAULT_KEY_SOUND_VOLUME
 from core.transitions import TextChange
+from ui.dialogs import SettingsDialog
+from ui.main_window import TypingPracticeApp
 
 FULL_SCALE = 32767
 
@@ -209,3 +219,120 @@ def test_shutdown_removes_temp_dir(fake_effects):
     player.shutdown()
     assert not folder.exists()
     assert player.enabled is False
+
+
+# --- settings and the typing hook ---------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def window(qapp, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    win = TypingPracticeApp()
+    yield win
+    win.close()
+
+
+class Recorder:
+    """Stands in for KeySoundPlayer so tests can see which sounds were requested."""
+
+    enabled = True
+
+    def __init__(self):
+        self.played = []
+
+    def play(self, kind):
+        self.played.append(kind)
+
+    def configure(self, profile, volume):
+        pass
+
+    def shutdown(self):
+        pass
+
+
+def set_target(window, text):
+    window.current_target_text = text
+    window.reset_exercise()
+    window.key_sounds = Recorder()
+
+
+def test_defaults(window):
+    assert DEFAULT_KEY_SOUND_PROFILE == "off" and DEFAULT_KEY_SOUND_VOLUME == 60
+    assert window.progress_store.get_setting("key_sound_profile", DEFAULT_KEY_SOUND_PROFILE) == "off"
+    assert window.key_sounds.enabled is False
+
+
+def test_settings_dialog_round_trip(window, fake_effects):
+    dialog = SettingsDialog(window.progress_store, window)
+    dialog.settings_changed.connect(window._on_settings_changed)
+    dialog.key_sound_combo.setCurrentIndex(dialog.key_sound_combo.findData("clicky"))
+    dialog.key_sound_volume_slider.setValue(40)
+    dialog._save_settings()
+    assert window.progress_store.get_setting("key_sound_profile") == "clicky"
+    assert window.progress_store.get_setting("key_sound_volume") == 40
+    assert window.key_sounds.enabled is True
+    assert all(effect.volume == 0.4 for effect in fake_effects.instances)
+
+
+def test_settings_dialog_shows_saved_values(window):
+    window.progress_store.set_setting("key_sound_profile", "linear")
+    window.progress_store.set_setting("key_sound_volume", 25)
+    dialog = SettingsDialog(window.progress_store, window)
+    assert dialog.key_sound_combo.currentData() == "linear"
+    assert dialog.key_sound_volume_slider.value() == 25
+
+
+def test_correct_letter_plays_letter(window):
+    set_target(window, "ab")
+    QTest.keyClicks(window.typing_input, "a")
+    assert window.key_sounds.played == ["letter"]
+
+
+def test_wrong_letter_plays_error(window):
+    set_target(window, "ab")
+    QTest.keyClicks(window.typing_input, "x")
+    assert window.key_sounds.played == ["error"]
+
+
+def test_backspace_plays_letter(window):
+    set_target(window, "ab")
+    QTest.keyClicks(window.typing_input, "x")
+    QTest.keyClick(window.typing_input, Qt.Key.Key_Backspace)
+    assert window.key_sounds.played == ["error", "letter"]
+
+
+def test_enter_plays_enter_and_auto_fill_is_silent(window):
+    set_target(window, "a\n    b")
+    QTest.keyClicks(window.typing_input, "a")
+    QTest.keyClick(window.typing_input, Qt.Key.Key_Return)
+    assert window.typing_input.toPlainText() == "a\n    "  # indentation was filled in
+    assert window.key_sounds.played == ["letter", "enter"]
+
+
+def test_paste_is_silent(window):
+    set_target(window, "ab")
+    mime = QMimeData()
+    mime.setText("ab")
+    window.typing_input.insertFromMimeData(mime)
+    assert window.key_sounds.played == []
+
+
+def test_strict_mode_blocked_backspace_is_silent(window):
+    set_target(window, "ab")
+    window._strict_mode = True
+    QTest.keyClicks(window.typing_input, "x")
+    window.key_sounds.played.clear()
+    QTest.keyClick(window.typing_input, Qt.Key.Key_Backspace)
+    assert window.key_sounds.played == []
+
+
+def test_completing_keystroke_still_plays(window):
+    set_target(window, "ab")
+    QTest.keyClicks(window.typing_input, "ab")
+    assert window._round_complete is True
+    assert window.key_sounds.played == ["letter", "letter"]

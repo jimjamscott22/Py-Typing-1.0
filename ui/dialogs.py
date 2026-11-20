@@ -81,6 +81,8 @@ from core.constants import (
     DEVELOPER_KEYS_MODES,
     DEFAULT_THEME,
     DEFAULT_ADAPTIVE_DRILLS,
+    DEFAULT_KEY_SOUND_PROFILE,
+    DEFAULT_KEY_SOUND_VOLUME,
     DEFAULT_TIMED_MODE_SECONDS,
     DEFAULT_DAILY_GOAL_MINUTES,
     DEFAULT_WEEKLY_GOAL_SESSIONS,
@@ -1325,6 +1327,35 @@ class SettingsDialog(QDialog):
         self.font_size_spin.setSuffix(" pt")
         display_layout.addRow("Font Size:", self.font_size_spin)
 
+        # Mechanical key sounds
+        self.key_sound_combo = QComboBox()
+        for profile_id, label in (
+            ("off", "Off"),
+            ("clicky", "Clicky (blue)"),
+            ("tactile", "Tactile (brown)"),
+            ("linear", "Linear (red)"),
+        ):
+            self.key_sound_combo.addItem(label, profile_id)
+        sound_index = self.key_sound_combo.findData(
+            self.progress_store.get_setting("key_sound_profile", DEFAULT_KEY_SOUND_PROFILE)
+        )
+        self.key_sound_combo.setCurrentIndex(max(sound_index, 0))
+        display_layout.addRow("Key Sounds:", self.key_sound_combo)
+
+        self.key_sound_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.key_sound_volume_slider.setRange(0, 100)
+        self.key_sound_volume_slider.setValue(
+            int(self.progress_store.get_setting("key_sound_volume", DEFAULT_KEY_SOUND_VOLUME))
+        )
+        self.key_sound_volume_label = QLabel(f"{self.key_sound_volume_slider.value()}%")
+        self.key_sound_volume_slider.valueChanged.connect(
+            lambda v: self.key_sound_volume_label.setText(f"{v}%")
+        )
+        display_layout.addRow(
+            "Key Volume:",
+            self._slider_row(self.key_sound_volume_slider, self.key_sound_volume_label),
+        )
+
         layout.addWidget(display_group)
 
         # Random Words Settings
@@ -1426,6 +1457,8 @@ class SettingsDialog(QDialog):
             "show_keyboard": self.show_keyboard_check.isChecked(),
             "realtime_feedback": self.realtime_feedback_check.isChecked(),
             "font_size": self.font_size_spin.value(),
+            "key_sound_profile": self.key_sound_combo.currentData(),
+            "key_sound_volume": self.key_sound_volume_slider.value(),
             "random_word_count": self.word_count_spin.value(),
             "adaptive_drills": self.adaptive_drills_check.isChecked(),
             "timed_mode_seconds": self.timed_mode_combo.currentData(),

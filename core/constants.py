@@ -25,6 +25,9 @@ DEFAULT_DEVELOPER_KEYS_MODE = "symbol-heavy"
 DEFAULT_THEME = "Light"  # Default theme name
 DEFAULT_TIMED_MODE_SECONDS = 0  # 0 = disabled; 60/120/300 for timed drills
 DEFAULT_ADAPTIVE_DRILLS = True  # Weight random words toward weak keys
+DEFAULT_KEY_SOUND_PROFILE = "off"  # Mechanical key sounds are opt-in
+DEFAULT_KEY_SOUND_VOLUME = 60  # 0-100
+KEY_SOUND_PROFILES = ("off", "clicky", "tactile", "linear")
 
 DEFAULT_DAILY_GOAL_MINUTES = 10  # Personal daily practice-time goal
 DEFAULT_WEEKLY_GOAL_SESSIONS = 5  # Personal weekly session-count goal
