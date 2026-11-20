@@ -1,8 +1,13 @@
-from typing import List
+from typing import List, Sequence
 from core.models import Lesson
+from core.snippets import build_snippet_lessons
 
-def build_lessons() -> List[Lesson]:
-    """Return the default ordered list of typing lessons."""
+
+def _build_core_lessons() -> List[Lesson]:
+    """Return the original typing lessons.
+
+    Saved progress is keyed by lesson index, so never reorder or insert here.
+    """
     return [
         Lesson(
             title="Home Row - Basic",
@@ -197,3 +202,24 @@ def build_lessons() -> List[Lesson]:
             texts=["__WEAK_KEYS__"],
         ),
     ]
+
+
+def build_lessons() -> List[Lesson]:
+    """Return every lesson: the core lessons, then the optional code snippets.
+
+    Snippet lessons are appended after the core lessons so that no saved
+    lesson index ever shifts.
+    """
+    return _build_core_lessons() + build_snippet_lessons()
+
+
+def curriculum_text_counts(lessons: Sequence[Lesson]) -> List[int]:
+    """Per-lesson text counts for the curriculum achievement (0 for optional lessons)."""
+    return [len(lesson.texts) if lesson.curriculum else 0 for lesson in lessons]
+
+
+def completion_message(lesson: Lesson) -> str:
+    """Message shown after the last text of the last lesson."""
+    if lesson.curriculum:
+        return "🏆 Congratulations! You've completed all lessons!"
+    return "🏆 You've finished all the code snippets!"

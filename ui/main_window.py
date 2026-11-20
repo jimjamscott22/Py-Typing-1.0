@@ -27,7 +27,7 @@ from core.models import TypingSession
 from core.persistence import ProgressStore
 from core.session_controller import SessionController
 from core.autoindent import auto_fill_text
-from core.lessons import build_lessons
+from core.lessons import build_lessons, completion_message, curriculum_text_counts
 from core.wordgen import (
     generate_text,
     generate_developer_text,
@@ -1692,7 +1692,7 @@ class TypingPracticeApp(QMainWindow):
             lesson_index=self.current_lesson_index,
             text_index=self.current_text_index,
             lesson_name=lesson_name,
-            lesson_text_counts=[len(lesson.texts) for lesson in self.lessons],
+            lesson_text_counts=curriculum_text_counts(self.lessons),
         )
 
         self.typing_input.setReadOnly(True)
@@ -1811,7 +1811,7 @@ class TypingPracticeApp(QMainWindow):
             self.lesson_list.setCurrentRow(self._row_for_lesson(self.current_lesson_index + 1))
             return
 
-        self._update_description("🏆 Congratulations! You've completed all lessons!", mode="complete")
+        self._update_description(completion_message(lesson), mode="complete")
 
     def _update_best_wpm_label(self, current_wpm: Optional[int] = None) -> None:
         if self.mode != "lesson":
@@ -1881,7 +1881,7 @@ class TypingPracticeApp(QMainWindow):
     def _sync_achievements(self) -> List[str]:
         """Persist any achievements earned by the current recorded progress."""
         return self.controller.sync_achievements(
-            [len(lesson.texts) for lesson in self.lessons]
+            curriculum_text_counts(self.lessons)
         )
 
     def _show_challenges(self) -> None:

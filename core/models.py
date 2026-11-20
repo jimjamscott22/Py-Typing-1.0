@@ -10,6 +10,18 @@ class Lesson:
     description: str
     texts: List[str]
     category: str = ""  # Sidebar section heading
+    # False for optional lessons (code snippets) that must not count toward
+    # the "finish the curriculum" achievement.
+    curriculum: bool = True
+
+
+@dataclass(frozen=True)
+class Snippet:
+    """One piece of code to type: a language, a difficulty tier and its text."""
+    language: str
+    difficulty: str
+    title: str
+    text: str
 
 
 @dataclass
